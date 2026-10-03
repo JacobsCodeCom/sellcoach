@@ -1,0 +1,24 @@
+{
+  "name": "mira",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @mira/web dev",
+    "dev:web": "pnpm --filter @mira/web dev",
+    "dev:demo": "pnpm --filter @mira/demo dev",
+    "dev:demo-ap": "pnpm --filter @mira/demo-ap dev",
+    "dev:demo-support": "pnpm --filter @mira/demo-support dev",
+    "build": "pnpm -r build",
+    "build:web": "pnpm --filter @mira/web build",
+    "build:demo": "pnpm --filter @mira/demo build",
+    "build:demo-ap": "pnpm --filter @mira/demo-ap build",
+    "build:demo-support": "pnpm --filter @mira/demo-support build",
+    "start:web": "pnpm --filter @mira/web start",
+    "start:demo": "pnpm --filter @mira/demo start",
+    "start:demo-ap": "pnpm --filter @mira/demo-ap start",
+    "start:demo-support": "pnpm --filter @mira/demo-support start"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.15.0"
+}
