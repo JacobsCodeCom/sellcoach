@@ -107,11 +107,14 @@ export async function askJson({
   const openaiKey = process.env.OPENAI_API_KEY;
   if (openaiKey) {
     try {
+      const sendImages = images.length > 0 && process.env.OPENAI_NO_VISION !== "1";
       const content = [
         { type: "text", text },
-        ...images.map((url) => ({ type: "image_url", image_url: { url } })),
+        ...(sendImages ? images.map((url) => ({ type: "image_url", image_url: { url } })) : []),
       ];
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      // Any OpenAI-compatible provider (Moonshot/Kimi, Groq, OpenRouter, a local server…) via OPENAI_BASE_URL.
+      const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "");
+      const response = await fetch(`${baseUrl}/chat/completions`, {
         method: "POST",
         signal,
         headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
@@ -130,6 +133,8 @@ export async function askJson({
         const payload = (await response.json()) as { choices?: { message?: { content?: string } }[] };
         const parsed = parseJson(payload.choices?.[0]?.message?.content || "");
         if (parsed) return parsed;
+      } else {
+        console.warn("[llm] openai-compatible", response.status, (await response.text()).slice(0, 200));
       }
     } catch (err) {
       console.warn("[llm] openai failed", err instanceof Error ? err.message : err);

@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { APPRENTICE, formatClock, meetsLiveCaptureBar } from "@mira/core";
+import { KnowledgeLedger } from "@/components/capture/KnowledgeLedger";
 import { ApprenticeOrb } from "@/components/ApprenticeOrb";
 import { formatElapsed, type CaptureController } from "@/lib/liveCapture";
 import { useLiveApprentice, type LiveApprenticeResult } from "@/lib/useLiveApprentice";
@@ -23,15 +24,15 @@ export function RecordStep({ controller, expertName, onDone, embedded = false }:
   const doneRef = useRef(false);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
-  const { snap, ui, questions, moments, conversation, addTyped, toggleOffRecord, collect } = useLiveApprentice(
-    controller,
-    expertName,
-  );
+  const { snap, ui, questions, moments, conversation, ledger, activity, skipIntake, addTyped, toggleOffRecord, collect } =
+    useLiveApprentice(controller, expertName);
+  /** Scripted intake questions are context, not live probes: the challenge bar counts probes only. */
+  const probes = questions.filter((q) => q.origin !== "script");
 
   const status = snap?.status ?? "requesting";
   const recording = status === "recording";
   const offRecord = Boolean(snap?.offRecord);
-  const bar = meetsLiveCaptureBar(questions);
+  const bar = meetsLiveCaptureBar(probes);
   const guardrailAsked = bar.guardrails;
   const canFinish = bar.ok;
   const firstName = expertName.split(/\s+/)[0] || "You";
@@ -163,7 +164,7 @@ export function RecordStep({ controller, expertName, onDone, embedded = false }:
           <div>
             <strong>{recording ? ui.label : "Starting capture"}</strong>
             <p className="muted">
-              {questions.length}/{APPRENTICE.minLiveQuestions} Q · {guardrailAsked}/
+              {probes.length}/{APPRENTICE.minLiveQuestions} Q · {guardrailAsked}/
               {APPRENTICE.minGuardrailQuestions} guard · {moments.length} snaps
             </p>
           </div>
@@ -238,11 +239,26 @@ export function RecordStep({ controller, expertName, onDone, embedded = false }:
           </div>
         </div>
 
+        <h4 style={{ margin: "12px 0 0", fontSize: 12 }}>
+          What Mira knows <span className="muted">· scripted fundamentals first, then questions from what you do</span>
+        </h4>
+        <KnowledgeLedger ledger={ledger} />
+        {activity ? (
+          <p style={{ margin: "6px 0 0", fontSize: 12, opacity: 0.7 }}>
+            <span aria-hidden>👁</span> Mira sees: {activity}
+          </p>
+        ) : null}
+        {ui.intake ? (
+          <button type="button" className="secondary" onClick={skipIntake} style={{ marginBottom: 10 }}>
+            Skip intake
+          </button>
+        ) : null}
+
         <dl className="apprentice-counters">
-          <div data-ok={questions.length >= APPRENTICE.minLiveQuestions || undefined}>
+          <div data-ok={probes.length >= APPRENTICE.minLiveQuestions || undefined}>
             <dt>Questions asked</dt>
             <dd>
-              {questions.length} <span>/ {APPRENTICE.minLiveQuestions}</span>
+              {probes.length} <span>/ {APPRENTICE.minLiveQuestions}</span>
             </dd>
           </div>
           <div data-ok={guardrailAsked >= APPRENTICE.minGuardrailQuestions || undefined}>

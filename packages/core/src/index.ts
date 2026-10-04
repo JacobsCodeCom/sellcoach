@@ -13,3 +13,4 @@ export * from "./workMap";
 export * from "./practice";
 export * from "./liveTutor";
 export * from "./agentPlan";
+export * from "./knowledge";

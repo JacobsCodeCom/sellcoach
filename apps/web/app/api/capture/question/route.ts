@@ -1,4 +1,15 @@
-import { localLiveQuestion, redactDeep, type QuestionKind, type TranscriptLine } from "@mira/core";
+import {
+  ASK_POLICY,
+  FUNDAMENTALS_MODE,
+  PROBE_GUIDE,
+  ledgerSummary,
+  localLiveQuestion,
+  missingFundamentals,
+  redactDeep,
+  type Ledger,
+  type QuestionKind,
+  type TranscriptLine,
+} from "@mira/core";
 import { askJson } from "@/lib/llm";
 
 export const runtime = "nodejs";
@@ -20,7 +31,9 @@ Rules:
 - Never say personal data out loud (names of private people, phone numbers, e-mails, IDs).
 - If nothing meaningful happened, set "skip": true.
 
-Return JSON: {"skip": boolean, "question": string, "kind": "why"|"guardrail"|"exception"}`;
+You are given the KNOWLEDGE LEDGER: the slots you must fill about any work, with which are already FILLED. Follow the ASK POLICY and the MODE. Your question fills exactly one EMPTY slot; return its id as "slot".
+
+Return JSON: {"skip": boolean, "question": string, "kind": "why"|"guardrail"|"exception"|"context", "slot": string}`;
 
 type Body = {
   expertName?: string;
@@ -28,6 +41,10 @@ type Body = {
   asked?: { question: string; kind: QuestionKind }[];
   screenChanges?: number;
   image?: string;
+  /** Knowledge ledger so far: slotId → expert's words. */
+  ledger?: Ledger;
+  /** What Mira could NOT explain from watching (from /api/capture/observe). Ask about exactly this. */
+  confusion?: string;
 };
 
 export async function POST(request: Request) {
@@ -35,6 +52,8 @@ export async function POST(request: Request) {
   const recent = (body.recent ?? []).slice(-10);
   const asked = (body.asked ?? []).slice(-8);
   const fallback = localLiveQuestion({ recent: recent.filter((l) => l.who === "expert").map((l) => l.text), asked });
+  const ledger = body.ledger ?? {};
+  const fundamentalsDone = missingFundamentals(ledger, { appIsNew: false }).length === 0;
 
   const out = (await askJson({
     system: SYSTEM,
@@ -45,15 +64,22 @@ export async function POST(request: Request) {
       alreadyAsked: asked.map((q) => q.question),
       guardrailAskedYet: asked.some((q) => q.kind === "guardrail"),
       screen: body.image ? "The current screen is attached." : "No screen frame available.",
+      KNOWLEDGE_LEDGER: ledgerSummary(ledger),
+      ASK_POLICY,
+      MODE: fundamentalsDone ? PROBE_GUIDE : FUNDAMENTALS_MODE,
+      ...(body.confusion
+        ? { WHAT_I_DID_NOT_UNDERSTAND: `${body.confusion} — ask about EXACTLY this, in the expert's terms. Do not skip.` }
+        : {}),
     },
     images: body.image ? [body.image] : [],
     maxTokens: 200,
     timeoutMs: 12_000,
-  })) as { skip?: boolean; question?: string; kind?: string } | null;
+  })) as { skip?: boolean; question?: string; kind?: string; slot?: string } | null;
 
-  if (!out) return Response.json({ ...fallback, source: "local" });
-  const kind: QuestionKind = out.kind === "guardrail" || out.kind === "exception" ? out.kind : "why";
+  if (!out) return Response.json({ ...fallback, slot: fallback.kind === "guardrail" ? "guard.limit" : "why.reason", source: "local" });
+  const kind: QuestionKind = out.kind === "guardrail" || out.kind === "exception" || out.kind === "context" ? out.kind : "why";
   const question = String(out.question || "").trim();
-  if (out.skip || !question) return Response.json({ skip: true, question: "", kind, source: "model" });
-  return Response.json({ skip: false, question, kind, source: "model" });
+  const slot = typeof out.slot === "string" && out.slot ? out.slot : kind === "guardrail" ? "guard.limit" : "why.reason";
+  if (out.skip || !question) return Response.json({ skip: true, question: "", kind, slot, source: "model" });
+  return Response.json({ skip: false, question, kind, slot, source: "model" });
 }

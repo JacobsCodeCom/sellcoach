@@ -5,11 +5,11 @@
  */
 export const APPRENTICE = {
   /** No speech or screen change for this long counts as a pause. */
-  quietMs: 3500,
+  quietMs: 2000,
   /** After the live bar is met — stay mostly quiet (≈3–5 Q / 10 min). */
-  minGapMs: 90_000,
+  minGapMs: 30_000,
   /** Shorter gap only while still under the required 3 questions. */
-  catchUpGapMs: 20_000,
+  catchUpGapMs: 10_000,
   /** Challenge: at least three live questions before wrapping up. */
   minLiveQuestions: 3,
   /** Challenge: at least one question about a limit / exception / stop-and-ask. */
@@ -17,7 +17,7 @@ export const APPRENTICE = {
   /** Soft cap — brief says three to five live; debrief covers the rest. */
   maxLiveQuestions: 5,
   /** Wait before the first ask so they can settle into the task. */
-  firstQuestionAfterMs: 20_000,
+  firstQuestionAfterMs: 6_000,
   /** Stop waiting for an answer after this long; move on. */
   answerTimeoutMs: 30_000,
 };

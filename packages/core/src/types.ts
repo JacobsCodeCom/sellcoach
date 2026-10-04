@@ -216,7 +216,7 @@ export type TranscriptLine = {
   text: string;
 };
 
-export type QuestionKind = "why" | "guardrail" | "exception";
+export type QuestionKind = "why" | "guardrail" | "exception" | "context";
 
 /** A question the apprentice asked during recording, with the expert's spoken answer. */
 export type LiveQuestion = {
@@ -226,6 +226,10 @@ export type LiveQuestion = {
   kind: QuestionKind;
   answer: string;
   momentId: string | null;
+  /** Knowledge-ledger slot this question fills (see packages/core/src/knowledge.ts). */
+  slot?: string | null;
+  /** "script" = scripted fundamental (Phase A); "probe" = generated from what the expert did (Phase B). */
+  origin?: "script" | "probe";
 };
 
 export type GuardrailType = "limit" | "exception" | "stop_and_ask";
