@@ -2650,6 +2650,25 @@ select.admin-select {
   color: var(--ink);
 }
 
+.voice-skip {
+  appearance: none;
+  justify-self: center;
+  margin: -0.15rem 0 0;
+  padding: 0.15rem 0.45rem;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.voice-skip:hover {
+  color: var(--ink);
+}
+
 .levelup-thread {
   display: grid;
   gap: 0.65rem;
@@ -4321,6 +4340,12 @@ button.live-coach-link {
   flex: none;
 }
 
+.ext-record-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
 .ext-record-actions {
   flex: none;
   display: grid;
@@ -5031,6 +5056,13 @@ button.admin-badge {
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--accent);
+}
+
+.learn-path-progress {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--muted);
 }
 
 .learn-path-actions {
@@ -5989,10 +6021,121 @@ button.admin-badge {
   justify-content: flex-end;
 }
 
-.live-coach-now {
+.live-coach--slim {
+  gap: 0.85rem;
+  padding: 1rem;
+}
+
+.live-coach-slim-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.live-coach-slim-bar--break .rec-dot {
+  background: var(--muted);
+  box-shadow: none;
+  animation: none;
+}
+
+.live-coach-break {
   display: grid;
   gap: 0.35rem;
-  padding: 0.75rem 0.9rem;
+  padding: 0.15rem 0 0.25rem;
+}
+
+.live-coach-break .live-coach-next {
+  margin: 0;
+}
+
+.live-coach-break p {
+  margin: 0;
+}
+
+.live-coach-slim-bar .rec-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--warm);
+  box-shadow: 0 0 0 0 rgba(232, 93, 4, 0.5);
+  animation: pulse 1.4s ease-out infinite;
+  flex-shrink: 0;
+}
+
+/* Reserved slot so speaking scale/halo never covers Step / status text. */
+.live-coach-slim-bar .apprentice-orb {
+  width: 2.75rem;
+  height: 2.75rem;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 50%;
+}
+
+.live-coach-slim-bar .levelup-pix {
+  --pix: 3.5px;
+  transform: scale(0.88);
+}
+
+.live-coach-slim-bar .levelup-pix--hearing {
+  transform: scale(0.96);
+}
+
+.live-coach-slim-bar .levelup-pix--speaking {
+  transform: scale(0.96);
+  animation: live-coach-pix-speak 0.55s steps(3, end) infinite;
+}
+
+.live-coach-slim-bar .levelup-pix--speaking .levelup-pix-halo {
+  animation: live-coach-pix-halo-speak 0.55s steps(3, end) infinite;
+}
+
+@keyframes live-coach-pix-speak {
+  0%,
+  100% { transform: scale(0.9); }
+  50% { transform: scale(1.02); }
+}
+
+@keyframes live-coach-pix-halo-speak {
+  0% {
+    opacity: 0.65;
+    transform: scale(0.85);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.15);
+  }
+}
+
+.live-coach-slim-meta {
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+  flex: 1;
+  padding-right: 0.15rem;
+}
+
+.live-coach-slim-meta strong {
+  font-size: 0.85rem;
+  letter-spacing: 0.01em;
+}
+
+.live-coach-slim-meta .muted {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.3;
+}
+
+.live-coach-slim-time {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.live-coach-now {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.9rem 1rem;
   border-radius: 10px;
   border: 1px solid var(--line);
   background: var(--bg2);
@@ -6000,9 +6143,70 @@ button.admin-badge {
 
 .live-coach-now p { margin: 0; line-height: 1.45; }
 
+.live-coach-next {
+  margin: 0;
+  font-size: 1.2rem;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+.live-coach-checklist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.live-coach-checklist li {
+  display: grid;
+  grid-template-columns: 2.6rem 1fr;
+  gap: 0.45rem;
+  align-items: baseline;
+  font-size: 0.92rem;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.live-coach-check-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.live-coach-checklist .live-coach-link {
+  justify-self: start;
+  text-align: left;
+  font-size: 0.92rem;
+  word-break: break-all;
+}
+
+.live-coach-tip {
+  margin: 0;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
 .live-coach-line {
-  font-size: 1.05rem;
+  font-size: 1rem;
   letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.live-coach-hearing {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.live-coach-actions {
+  margin-top: 0.15rem;
 }
 
 .live-coach-moment { opacity: 0.95; }

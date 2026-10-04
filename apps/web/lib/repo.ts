@@ -56,6 +56,15 @@ export const CHROME_EXTENSION_INSTALL_URL =
   process.env.NEXT_PUBLIC_CHROME_EXTENSION_URL?.trim() ||
   `${MIRA_PRODUCTION_ORIGIN}/extension`;
 
+/** Mid-lesson progress so Continue can restore the live step after a break or exit. */
+export type LessonCheckpoint = {
+  membershipId: string;
+  lessonId: string;
+  stepIndex: number;
+  guidedThisStep: boolean;
+  updatedAt: number;
+};
+
 export type Store = {
   users: User[];
   companies: Company[];
@@ -73,6 +82,7 @@ export type Store = {
   captureTasks: CaptureTask[];
   invites: Invite[];
   learningSessions: LearningSession[];
+  lessonCheckpoints: LessonCheckpoint[];
   sessionUserId: string | null;
   activeCompanyId: string | null;
 };
@@ -95,6 +105,7 @@ export function emptyStore(): Store {
     captureTasks: [],
     invites: [],
     learningSessions: [],
+    lessonCheckpoints: [],
     sessionUserId: null,
     activeCompanyId: null,
   };
@@ -135,6 +146,7 @@ function normalizeStore(store: Partial<Store> | Store): Store {
     captureTasks: store.captureTasks ?? [],
     invites: store.invites ?? [],
     learningSessions: store.learningSessions ?? [],
+    lessonCheckpoints: store.lessonCheckpoints ?? [],
   });
 }
 
@@ -1413,13 +1425,71 @@ export function markLessonProgress(
   const roadmap = store.roadmaps.find((r) => r.membershipId === membershipId);
   if (!roadmap) throw new Error("Roadmap not found");
   const next = advanceRoadmapItem(roadmap, lessonId, status);
+  const checkpoints =
+    status === "done"
+      ? (store.lessonCheckpoints ?? []).filter(
+          (c) => !(c.membershipId === membershipId && c.lessonId === lessonId),
+        )
+      : (store.lessonCheckpoints ?? []);
   store = touchMembershipActive(
     {
       ...store,
       roadmaps: store.roadmaps.map((r) => (r.id === roadmap.id ? next : r)),
+      lessonCheckpoints: checkpoints,
     },
     membershipId,
   );
+  return write(store);
+}
+
+export function getLessonCheckpoint(
+  store: Store,
+  membershipId: string,
+  lessonId: string,
+): LessonCheckpoint | null {
+  return (
+    (store.lessonCheckpoints ?? []).find(
+      (c) => c.membershipId === membershipId && c.lessonId === lessonId,
+    ) ?? null
+  );
+}
+
+/** Persist the learner's current live step so they can continue after a break. */
+export function saveLessonCheckpoint(
+  membershipId: string,
+  lessonId: string,
+  input: { stepIndex: number; guidedThisStep?: boolean },
+): Store {
+  let store = read();
+  const membership = store.memberships.find((m) => m.id === membershipId);
+  if (!membership) throw new Error("Membership not found");
+  const stepIndex = Math.max(0, Math.floor(input.stepIndex));
+  const now = Date.now();
+  const next: LessonCheckpoint = {
+    membershipId,
+    lessonId,
+    stepIndex,
+    guidedThisStep: Boolean(input.guidedThisStep),
+    updatedAt: now,
+  };
+  const others = (store.lessonCheckpoints ?? []).filter(
+    (c) => !(c.membershipId === membershipId && c.lessonId === lessonId),
+  );
+  store = touchMembershipActive(
+    { ...store, lessonCheckpoints: [...others, next] },
+    membershipId,
+    now,
+  );
+  return write(store);
+}
+
+export function clearLessonCheckpoint(membershipId: string, lessonId: string): Store {
+  let store = read();
+  const next = (store.lessonCheckpoints ?? []).filter(
+    (c) => !(c.membershipId === membershipId && c.lessonId === lessonId),
+  );
+  if (next.length === (store.lessonCheckpoints ?? []).length) return store;
+  store = touchMembershipActive({ ...store, lessonCheckpoints: next }, membershipId);
   return write(store);
 }
 

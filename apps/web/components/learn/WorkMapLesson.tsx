@@ -15,6 +15,7 @@ import { ApprenticeOrb } from "@/components/ApprenticeOrb";
 import { FlowSteps } from "@/components/FlowSteps";
 import { VoiceReply } from "@/components/VoiceReply";
 import { GUARDRAIL_LABEL } from "@/components/workmap/WorkMapView";
+import { ExtensionCaptureController, isEmbeddedInExtension } from "@/lib/extensionCapture";
 import { formatElapsed, LiveCaptureController, type CaptureController } from "@/lib/liveCapture";
 import { isPromoDemo, markPromoDemo } from "@/lib/promoDemo";
 import { PromoLiveCaptureController } from "@/lib/promoLiveCapture";
@@ -31,6 +32,13 @@ type Props = {
   onExit: () => void;
   /** Expert trying their own lesson: nothing is saved. */
   preview?: boolean;
+  /** Chrome extension side panel — mic + tab shots, no Share picker. */
+  embedded?: boolean;
+  /** Restored mid-lesson step when the learner continues after a break. */
+  resumeStepIndex?: number;
+  resumeGuided?: boolean;
+  /** Persist live step progress for Continue / break resume. */
+  onCheckpoint?: (snap: { stepIndex: number; guidedThisStep: boolean }) => void;
 };
 
 type Phase = "live" | "walkthrough" | "practice" | "report";
@@ -40,9 +48,73 @@ type CaseStage = "answer" | "checking" | "why" | "revealed" | "ok" | "unsure";
 /** Fresh €7,200 equipment invoice on the AP sandbox (Module 3 demo path). */
 const DEMO_AP_URL = process.env.NEXT_PUBLIC_DEMO_AP_URL || "http://localhost:3002";
 
-export function WorkMapLesson({ map, moments, expertName, learnerName, onFinished, onExit, preview }: Props) {
+function isLoopbackUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0" || host.endsWith(".local");
+  } catch {
+    return false;
+  }
+}
+
+/** Prefer a real recorded tab URL over local demo hosts. */
+function preferRecordedUrl(...candidates: Array<string | null | undefined>): string | null {
+  const cleaned = candidates.map((u) => u?.trim()).filter((u): u is string => Boolean(u));
+  if (!cleaned.length) return null;
+  return cleaned.find((u) => !isLoopbackUrl(u)) ?? cleaned[0] ?? null;
+}
+
+function nearestMomentWithUrl(
+  moments: ScreenMoment[],
+  t: number | null | undefined,
+): ScreenMoment | undefined {
+  const withUrl = moments.filter((m) => m.url?.trim());
+  if (!withUrl.length) return undefined;
+  if (t == null) return withUrl[0];
+  let best: ScreenMoment | undefined;
+  for (const m of withUrl) {
+    if (m.t > t + 2000) continue;
+    if (!best || m.t > best.t) best = m;
+  }
+  return best ?? withUrl[0];
+}
+
+/** Resolve Open link from the Work Map / recorded screen moments — never invent a demo URL. */
+function urlForStep(
+  step: { pageUrl?: string; momentId: string | null; t?: number | null },
+  moments: ScreenMoment[],
+): string | null {
+  const linked = step.momentId ? moments.find((m) => m.id === step.momentId) : undefined;
+  const nearby = nearestMomentWithUrl(moments, step.t ?? linked?.t ?? null);
+  return preferRecordedUrl(step.pageUrl, linked?.url, nearby?.url);
+}
+
+/** First sentence / short line for the on-screen checklist. */
+function shortLine(text: string, max = 110): string {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  const sentence = clean.match(/^[^.!?]+[.!?]?/)?.[0]?.trim() ?? clean;
+  if (sentence.length <= max) return sentence;
+  return `${sentence.slice(0, max - 1).trim()}…`;
+}
+
+export function WorkMapLesson({
+  map,
+  moments,
+  expertName,
+  learnerName,
+  onFinished,
+  onExit,
+  preview,
+  embedded = false,
+  resumeStepIndex = 0,
+  resumeGuided = false,
+  onCheckpoint,
+}: Props) {
   const [phase, setPhase] = useState<Phase>("live");
-  const [stepIndex, setStepIndex] = useState(0);
+  const [stepIndex, setStepIndex] = useState(() =>
+    Math.max(0, Math.min(Math.max(0, map.steps.length - 1), Math.floor(resumeStepIndex))),
+  );
   const [speaking, setSpeaking] = useState(false);
   const [cases, setCases] = useState<PracticeCase[] | null>(null);
   const [caseIndex, setCaseIndex] = useState(0);
@@ -63,27 +135,38 @@ export function WorkMapLesson({ map, moments, expertName, learnerName, onFinishe
   }, []);
   const expertFirst = expertName.split(/\s+/)[0] || "Your colleague";
   const learnerFirst = learnerName.split(/\s+/)[0] || "there";
+  const hasResume = resumeStepIndex > 0 || resumeGuided;
 
-  const live = useLiveTutor(controller, map, moments, expertName, learnerName);
+  const live = useLiveTutor(controller, map, moments, expertName, learnerName, {
+    initialStepIndex: resumeStepIndex,
+    initialGuidedThisStep: resumeGuided,
+    onCheckpoint,
+  });
 
   const practicePageUrl = useMemo(() => {
-    for (const step of map.steps) {
-      if (step.pageUrl?.trim()) return step.pageUrl.trim();
-      const momentUrl = step.momentId
-        ? moments.find((m) => m.id === step.momentId)?.url?.trim()
-        : undefined;
-      if (momentUrl) return momentUrl;
+    for (const s of map.steps) {
+      const url = urlForStep(s, moments);
+      if (url) return url;
     }
-    return DEMO_AP_URL;
-  }, [map.steps, moments]);
-  const practicePageLabel =
-    practicePageUrl === DEMO_AP_URL ? "AP practice desk" : pageHostLabel(practicePageUrl);
+    // Only use the AP demo desk when this lesson has no recorded page URLs at all.
+    const looksLikeApDemo = /invoice|accounts payable|ap desk|INV-/i.test(
+      `${map.title} ${map.steps.map((s) => `${s.title} ${s.screen} ${s.decision}`).join(" ")}`,
+    );
+    return looksLikeApDemo ? DEMO_AP_URL : null;
+  }, [map.steps, map.title, moments]);
+  const practicePageLabel = practicePageUrl
+    ? practicePageUrl === DEMO_AP_URL
+      ? "AP practice desk"
+      : pageHostLabel(practicePageUrl)
+    : null;
 
   useEffect(() => onAgentSpeaking(setSpeaking), []);
   useEffect(() => () => {
     cancelSpeech();
-    void controllerRef.current?.stop();
+    const c = controllerRef.current;
     controllerRef.current = null;
+    void c?.stop();
+    if (c instanceof ExtensionCaptureController) c.dispose();
   }, []);
 
   useEffect(() => {
@@ -201,21 +284,33 @@ export function WorkMapLesson({ map, moments, expertName, learnerName, onFinishe
     setStarting(true);
     setStartError(null);
     const promo = isPromoDemo();
+    const useExtensionCapture = !promo && (embedded || isEmbeddedInExtension());
     const frame = moments.find((m) => m.image?.startsWith("data:"))?.image ?? null;
+    // Extension: same mic + tab screenshots as recording (no Share picker).
+    // Web: classic screen share + mic.
     const next: CaptureController = promo
       ? new PromoLiveCaptureController(frame)
-      : new LiveCaptureController();
+      : useExtensionCapture
+        ? new ExtensionCaptureController()
+        : new LiveCaptureController();
     controllerRef.current = next;
     setController(next);
     try {
-      await next.start({ preferCurrentTab: true });
+      await next.start(useExtensionCapture || promo ? undefined : { preferCurrentTab: true });
       if (promo) {
         window.parent.postMessage({ type: "mira:promo-spotlight", target: "ticket-alpine" }, "*");
       }
     } catch (err) {
       controllerRef.current = null;
       setController(null);
-      setStartError(err instanceof Error ? err.message : "Could not start screen share");
+      if (next instanceof ExtensionCaptureController) next.dispose();
+      setStartError(
+        err instanceof Error
+          ? err.message
+          : useExtensionCapture
+            ? "Could not start coaching"
+            : "Could not start screen share",
+      );
     } finally {
       setStarting(false);
     }
@@ -223,11 +318,13 @@ export function WorkMapLesson({ map, moments, expertName, learnerName, onFinishe
 
   async function stopLiveAndContinue(nextPhase: Phase) {
     cancelSpeech();
+    if (!live.finished && !preview) live.persistCheckpoint();
     if (live.results.length) setLiveResults(live.results);
     const c = controllerRef.current;
     controllerRef.current = null;
     setController(null);
     if (c) await c.stop();
+    if (c instanceof ExtensionCaptureController) c.dispose();
     setPhase(nextPhase);
   }
 
@@ -261,11 +358,29 @@ export function WorkMapLesson({ map, moments, expertName, learnerName, onFinishe
     live.ui.busy ||
     stage === "checking" ||
     (phase === "practice" && !cases);
+  const liveListening =
+    recording && !speaking && !live.ui.speaking && !busy && !live.finished && !live.onBreak;
+  const liveStepUrl = (() => {
+    const url = liveStep ? urlForStep(liveStep, moments) : null;
+    if (!url) return null;
+    // Never surface the AP demo localhost link on a real recorded lesson.
+    if (isLoopbackUrl(url) && practicePageUrl !== DEMO_AP_URL) return null;
+    return url;
+  })();
+  const liveStepLook = liveStep ? shortLine(liveStep.screen, 90) : "";
+  const liveStepDo = liveStep ? shortLine(liveStep.decision, 110) : "";
+
+  function handleExit() {
+    if (phase === "live" && !live.finished && !preview) {
+      live.persistCheckpoint();
+    }
+    onExit();
+  }
 
   return (
     <div className={`learn learn-session learn-session--wide${phase === "live" && recording ? " learn-session--live" : ""}`}>
       <div className="learn-session-top">
-        <button type="button" className="learn-back" onClick={onExit}>
+        <button type="button" className="learn-back" onClick={handleExit}>
           ← Back
         </button>
         <span className="learn-kicker">
@@ -274,64 +389,101 @@ export function WorkMapLesson({ map, moments, expertName, learnerName, onFinishe
         </span>
       </div>
 
-      <FlowSteps steps={["On your screen", "Practice", "Progress"]} active={phaseIndex} />
+      {phase === "live" && recording ? null : (
+        <FlowSteps steps={["On your screen", "Practice", "Progress"]} active={phaseIndex} />
+      )}
 
-      <div className="learn-agent learn-agent--row">
-        <ApprenticeOrb
-          state={
-            speaking || live.ui.speaking
-              ? "speaking"
+      {phase === "live" && recording ? null : (
+        <div className="learn-agent learn-agent--row">
+          <ApprenticeOrb
+            state={
+              speaking || live.ui.speaking
+                ? "speaking"
+                : busy
+                  ? "thinking"
+                  : live.ui.awaiting || (phase === "practice" && stage === "answer")
+                    ? "listening"
+                    : "waiting"
+            }
+          />
+          <p className="learn-status">
+            {speaking || live.ui.speaking
+              ? "Mira is talking"
               : busy
-                ? "thinking"
-                : live.ui.awaiting || (phase === "practice" && stage === "answer")
-                  ? "listening"
-                  : "waiting"
-          }
-        />
-        <p className="learn-status">
-          {speaking || live.ui.speaking
-            ? "Mira is talking"
-            : busy
-              ? "Watching your screen…"
-              : phase === "live"
-                ? live.ui.label
-                : phase === "walkthrough"
-                  ? `From ${expertName}`
-                  : "Your turn"}
-        </p>
-      </div>
+                ? "Watching your screen…"
+                : phase === "live"
+                  ? live.ui.label
+                  : phase === "walkthrough"
+                    ? `From ${expertName}`
+                    : "Your turn"}
+          </p>
+        </div>
+      )}
 
       {phase === "live" ? (
-        <section className="lesson-card-step live-coach">
+        <section className={`lesson-card-step live-coach${recording ? " live-coach--slim" : ""}`}>
           {!recording ? (
             <>
-              <h2>Do it on your screen</h2>
+              <h2>
+                {hasResume
+                  ? `Continue · step ${resumeStepIndex + 1} of ${map.steps.length}`
+                  : embedded
+                    ? "Ready when you are"
+                    : "Do it on your screen"}
+              </h2>
               <p className="muted">
-                Share the real tool (or the AP practice desk). Mira watches, talks you through {expertFirst}&apos;s steps, and
-                steps in before a guardrail breaks — replaying {expertFirst}&apos;s screen moment when it helps.
+                {hasResume
+                  ? `You're on “${map.steps[resumeStepIndex]?.title ?? "this step"}”. Start coaching again whenever you're ready — or say you want a break anytime.`
+                  : embedded
+                    ? practicePageUrl
+                      ? `Mira will walk you through ${expertFirst}'s steps. Open the page, start coaching, then just talk.`
+                      : `Mira will walk you through ${expertFirst}'s steps. Start coaching, open the tool yourself, then just talk.`
+                    : `Share the real tool. Mira watches, talks you through ${expertFirst}'s steps, and steps in before a guardrail breaks.`}
               </p>
               <ol className="live-coach-steps">
+                {practicePageUrl && practicePageLabel ? (
+                  <li>
+                    Open{" "}
+                    <button
+                      type="button"
+                      className="live-coach-link"
+                      onClick={() => openMiraTab(practicePageUrl)}
+                    >
+                      {practicePageLabel}
+                    </button>
+                  </li>
+                ) : (
+                  <li>Open the same tool {expertFirst} used</li>
+                )}
                 <li>
-                  Open the page you&apos;ll practice on{" "}
-                  <button
-                    type="button"
-                    className="live-coach-link"
-                    onClick={() => openMiraTab(practicePageUrl)}
-                  >
-                    {practicePageLabel}
-                  </button>
+                  {embedded
+                    ? hasResume
+                      ? "Start coaching to pick up where you left off"
+                      : "Start coaching, then follow each step"
+                    : "Come back here and share that window (or your whole screen)"}
                 </li>
-                <li>Come back here and share that window (or your whole screen)</li>
-                <li>Work a fresh case while Mira coaches out loud — ask for a hint if you get stuck</li>
+                <li>Talk out loud — ask for a hint, or say you want a break</li>
               </ol>
               {startError ? <p className="live-coach-error">{startError}</p> : null}
               <div className="hero-actions">
                 <button className="btn btn-primary btn-lg" type="button" disabled={starting} onClick={() => void startLiveCoach()}>
-                  {starting ? "Waiting for share…" : "Share screen & start"}
+                  {starting
+                    ? embedded
+                      ? "Starting…"
+                      : "Waiting for share…"
+                    : hasResume
+                      ? embedded
+                        ? "Continue coaching"
+                        : "Share screen & continue"
+                      : embedded
+                        ? "Start coaching"
+                        : "Share screen & start"}
                 </button>
-                <button className="btn" type="button" onClick={() => openMiraTab(practicePageUrl)}>
-                  Open {practicePageLabel}
-                </button>
+                {practicePageUrl && practicePageLabel ? (
+                  <button className="btn" type="button" onClick={() => openMiraTab(practicePageUrl)}>
+                    Open {practicePageLabel}
+                  </button>
+                ) : null}
                 <button
                   className="btn"
                   type="button"
@@ -346,65 +498,101 @@ export function WorkMapLesson({ map, moments, expertName, learnerName, onFinishe
             </>
           ) : (
             <>
-              <div className="live-coach-banner">
+              <div className={`live-coach-slim-bar${live.onBreak ? " live-coach-slim-bar--break" : ""}`}>
                 <span className="rec-dot" aria-hidden />
-                <div>
+                <ApprenticeOrb
+                  state={
+                    speaking || live.ui.speaking
+                      ? "speaking"
+                      : busy
+                        ? "thinking"
+                        : live.onBreak
+                          ? "waiting"
+                          : liveListening
+                            ? "listening"
+                            : "waiting"
+                  }
+                />
+                <div className="live-coach-slim-meta">
                   <strong>
-                    Coaching · {formatElapsed(live.snap?.elapsedMs ?? 0)} · Step {live.stepIndex + 1} of {map.steps.length}
+                    {live.onBreak ? "On a break · " : ""}
+                    Step {live.stepIndex + 1}/{map.steps.length}
+                    {live.finished ? " · done" : ""}
                   </strong>
-                  <p className="muted">Keep the real app in front. Ask where to click — Mira explains using {expertFirst}&apos;s steps, and only moves on when you finish one.</p>
+                  <span className="muted">
+                    {speaking || live.ui.speaking
+                      ? "Mira is talking"
+                      : live.finished
+                        ? "All steps done"
+                        : live.onBreak
+                          ? "Say continue when you're ready"
+                          : liveListening
+                            ? "Listening"
+                            : live.ui.label}
+                  </span>
                 </div>
-                <div className="rec-meta">
-                  <span className="tag">{live.snap?.hasScreen ? "Screen on" : "No screen"}</span>
-                  <span className="tag">{live.snap?.hasMic ? "Mic on" : "No mic"}</span>
-                </div>
+                <span className="live-coach-slim-time">{formatElapsed(live.snap?.elapsedMs ?? 0)}</span>
               </div>
 
-              {liveStep ? (
+              {live.onBreak && liveStep ? (
+                <div className="live-coach-break">
+                  <h2 className="live-coach-next">Take your time</h2>
+                  <p className="muted">
+                    Progress saved at step {live.stepIndex + 1} of {map.steps.length}:{" "}
+                    <strong>{liveStep.title}</strong>
+                  </p>
+                  <p className="muted">Say “continue” or tap Resume when you&apos;re back.</p>
+                </div>
+              ) : liveStep ? (
                 <div className="live-coach-now">
                   <span className="wm-step-meta">
-                    Now · {liveStep.title}
-                    {liveStep.isJudgmentCall ? " · judgment call" : ""}
+                    Your move · {live.stepIndex + 1} of {map.steps.length}
                   </span>
-                  {liveStep.pageUrl || moments.find((m) => m.id === liveStep.momentId)?.url ? (
-                    <p>
-                      <button
-                        type="button"
-                        className="learn-preview-open"
-                        onClick={() =>
-                          openMiraTab(
-                            liveStep.pageUrl ||
-                              moments.find((m) => m.id === liveStep.momentId)?.url ||
-                              practicePageUrl,
-                          )
-                        }
-                      >
-                        Open{" "}
-                        {pageHostLabel(
-                          liveStep.pageUrl ||
-                            moments.find((m) => m.id === liveStep.momentId)?.url ||
-                            practicePageUrl,
-                        )}
-                      </button>
-                    </p>
+                  <h2 className="live-coach-next">{liveStep.title}</h2>
+                  <ol className="live-coach-checklist">
+                    {liveStepUrl ? (
+                      <li>
+                        <span className="live-coach-check-label">Open</span>{" "}
+                        <button
+                          type="button"
+                          className="live-coach-link"
+                          onClick={() => openMiraTab(liveStepUrl)}
+                        >
+                          {pageHostLabel(liveStepUrl)}
+                        </button>
+                      </li>
+                    ) : null}
+                    {liveStepLook ? (
+                      <li>
+                        <span className="live-coach-check-label">Find</span> {liveStepLook}
+                      </li>
+                    ) : null}
+                    {liveStepDo ? (
+                      <li>
+                        <span className="live-coach-check-label">Do</span> {liveStepDo}
+                      </li>
+                    ) : null}
+                    <li>
+                      <span className="live-coach-check-label">Then</span> say when you&apos;ve done it
+                    </li>
+                  </ol>
+                  {live.lastSpeak && !speaking && !live.ui.speaking ? (
+                    <p className="live-coach-tip">{shortLine(live.lastSpeak, 140)}</p>
                   ) : null}
-                  {liveStep.decision ? (
-                    <p>
-                      <strong>What {expertFirst} did:</strong> {liveStep.decision}
-                    </p>
+                  {live.snap?.interimTranscript ? (
+                    <p className="live-coach-hearing">Hearing: {live.snap.interimTranscript}</p>
+                  ) : live.heard ? (
+                    <p className="live-coach-hearing">Heard: {live.heard}</p>
                   ) : null}
-                  {live.lastSpeak ? <p className="live-coach-line">{live.lastSpeak}</p> : null}
-                  {live.heard ? <p className="learn-line learn-line--user">You: {live.heard}</p> : null}
                 </div>
               ) : null}
 
-              {live.intervention ? (
+              {!live.onBreak && live.intervention ? (
                 <div className="coach-box coach-box--stop">
-                  <h4>{expertFirst} would stop here</h4>
+                  <h4>Hold on</h4>
                   <p>{live.intervention.speak}</p>
                   {liveGuard ? (
-                    <p>
-                      <span className={`wm-badge wm-badge--${liveGuard.type}`}>{GUARDRAIL_LABEL[liveGuard.type]}</span>{" "}
+                    <p className="muted">
                       <strong>{liveGuard.rule}</strong>
                     </p>
                   ) : null}
@@ -412,56 +600,43 @@ export function WorkMapLesson({ map, moments, expertName, learnerName, onFinishe
                     <p className="wm-quote">
                       “{live.intervention.explain}” — {expertFirst}
                     </p>
-                  ) : null}
-                  {live.replayMoment ? (
-                    <figure className="coach-replay">
-                      {/* eslint-disable-next-line @next/next/no-img-element -- data URL screen moment */}
-                      <img src={live.replayMoment.image} alt={`${expertFirst}'s screen at ${formatClock(live.replayMoment.t)}`} />
-                      <figcaption>
-                        Replay · {formatClock(live.replayMoment.t)}
-                      </figcaption>
-                    </figure>
-                  ) : null}
+                  ) : (
+                    <p className="muted">Say why, out loud — no buttons needed.</p>
+                  )}
                 </div>
-              ) : live.replayMoment && liveStep?.momentId === live.replayMoment.id ? (
-                <figure className="coach-replay live-coach-moment">
-                  {/* eslint-disable-next-line @next/next/no-img-element -- data URL screen moment */}
-                  <img src={live.replayMoment.image} alt={`${expertFirst}'s reference screen`} />
-                  <figcaption>
-                    {expertFirst}&apos;s moment · {formatClock(live.replayMoment.t)}
-                  </figcaption>
-                </figure>
               ) : null}
 
-              <p className="learn-hint">{live.ui.label}</p>
-              <VoiceReply
-                disabled={live.ui.busy || live.finished}
-                placeholder={
-                  live.intervention && !live.intervention.whyAsked
-                    ? `Why do you think ${expertFirst} would stop?`
-                    : "Ask where to click, or say what you did and why"
-                }
-                onSubmit={live.submitAnswer}
-              />
-
-              <div className="hero-actions">
+              <div className="hero-actions live-coach-actions">
+                {live.onBreak ? (
+                  <button className="btn btn-primary" type="button" onClick={live.resumeBreak}>
+                    Resume
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      className="btn"
+                      type="button"
+                      onClick={live.askForHint}
+                      disabled={live.finished || live.ui.busy || live.ui.speaking}
+                    >
+                      Need a hint?
+                    </button>
+                    <button
+                      className="btn"
+                      type="button"
+                      onClick={live.pauseBreak}
+                      disabled={live.finished || live.ui.busy}
+                    >
+                      Take a break
+                    </button>
+                  </>
+                )}
                 <button
-                  className="btn btn-primary"
+                  className="btn btn-ghost"
                   type="button"
                   onClick={() => void stopLiveAndContinue(live.finished ? "report" : "practice")}
                 >
-                  {live.finished ? "See progress" : "Finish live · practice cases"}
-                </button>
-                <button
-                  className="btn"
-                  type="button"
-                  onClick={live.askForHint}
-                  disabled={live.finished || live.ui.busy || live.ui.speaking}
-                >
-                  Need a hint?
-                </button>
-                <button className="btn btn-ghost" type="button" onClick={live.markStepDone} disabled={live.finished}>
-                  Skip step
+                  {live.finished ? "See progress" : "Done"}
                 </button>
               </div>
             </>

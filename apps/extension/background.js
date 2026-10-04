@@ -36,11 +36,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "mira:capture-visible-tab") {
     void (async () => {
       try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        const dataUrl = await chrome.tabs.captureVisibleTab(undefined, {
-          format: "jpeg",
-          quality: 80,
-        });
+        // Side panel / SW: prefer the last focused browser window's active tab.
+        const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        let dataUrl;
+        try {
+          dataUrl = await chrome.tabs.captureVisibleTab(tab?.windowId, {
+            format: "jpeg",
+            quality: 80,
+          });
+        } catch {
+          // Fall back if windowId is missing or the focused window isn't capturable.
+          dataUrl = await chrome.tabs.captureVisibleTab(undefined, {
+            format: "jpeg",
+            quality: 80,
+          });
+        }
         const url =
           tab?.url && (tab.url.startsWith("http://") || tab.url.startsWith("https://"))
             ? tab.url
@@ -74,7 +84,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "mira:highlight" && message.rect) {
     void (async () => {
       try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
         if (!tab?.id || !tab.url || !(tab.url.startsWith("http://") || tab.url.startsWith("https://"))) {
           sendResponse({ ok: false, error: "No highlightable tab" });
           return;

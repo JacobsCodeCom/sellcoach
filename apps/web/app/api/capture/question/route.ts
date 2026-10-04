@@ -54,6 +54,12 @@ export async function POST(request: Request) {
   if (!out) return Response.json({ ...fallback, source: "local" });
   const kind: QuestionKind = out.kind === "guardrail" || out.kind === "exception" ? out.kind : "why";
   const question = String(out.question || "").trim();
-  if (out.skip || !question) return Response.json({ skip: true, question: "", kind, source: "model" });
+  if (out.skip || !question) {
+    // Model often skips with thin transcript/no frame — still ask so recording isn't stuck.
+    if (!fallback.skip && fallback.question) {
+      return Response.json({ ...fallback, source: "local-fallback" });
+    }
+    return Response.json({ skip: true, question: "", kind, source: "model" });
+  }
   return Response.json({ skip: false, question, kind, source: "model" });
 }

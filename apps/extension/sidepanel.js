@@ -11,9 +11,53 @@ const originControls = document.getElementById("originControls");
 const frame = document.getElementById("frame");
 const originInput = document.getElementById("origin");
 const reloadBtn = document.getElementById("reload");
+const useLocalhostBtn = document.getElementById("useLocalhost");
+const devBar = document.getElementById("devBar");
+const devBarPanel = document.getElementById("devBarPanel");
+const devBarOrigin = document.getElementById("devBarOrigin");
+const toggleDevBarBtn = document.getElementById("toggleDevBar");
+const hideDevBarBtn = document.getElementById("hideDevBar");
+const changeOriginBtn = document.getElementById("changeOrigin");
 const errorEl = document.getElementById("error");
 
 let miraOrigin = DEFAULT_MIRA_ORIGIN;
+let devBarOpen = false;
+
+function setDevBarOpen(open) {
+  devBarOpen = open;
+  if (!devBar || !devBarPanel || !toggleDevBarBtn) return;
+  devBar.classList.toggle("is-open", open);
+  devBarPanel.hidden = !open;
+  toggleDevBarBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  toggleDevBarBtn.title = open ? "Hide Mira URL" : "Show Mira URL";
+}
+
+function showBootForOriginEdit() {
+  document.body.classList.remove("is-framed");
+  boot.hidden = false;
+  frame.hidden = true;
+  if (devBar) {
+    setDevBarOpen(false);
+    devBar.hidden = true;
+  }
+  if (ALLOW_ORIGIN_OVERRIDE) {
+    originControls.hidden = false;
+    bootStatus.textContent = "Choose a Mira URL for local development.";
+    if (originInput) {
+      originInput.value = miraOrigin;
+      originInput.focus();
+      originInput.select();
+    }
+  }
+}
+
+function syncDevBar(origin) {
+  if (!ALLOW_ORIGIN_OVERRIDE || !devBar || !devBarOrigin) return;
+  devBarOrigin.textContent = origin;
+  devBarOrigin.title = origin;
+  setDevBarOpen(devBarOpen);
+  devBar.hidden = false;
+}
 
 function normalizeOrigin(value) {
   const trimmed = String(value || "").trim().replace(/\/$/, "");
@@ -82,16 +126,26 @@ async function openMira(originValue) {
   document.body.classList.add("is-framed");
   frame.hidden = false;
   boot.hidden = true;
+  syncDevBar(origin);
 }
 
 if (ALLOW_ORIGIN_OVERRIDE) {
   originControls.hidden = false;
   bootStatus.textContent = "Opening Mira… You can change the URL for local development.";
   reloadBtn.addEventListener("click", () => {
-    document.body.classList.remove("is-framed");
-    boot.hidden = false;
-    frame.hidden = true;
     void openMira(originInput.value);
+  });
+  useLocalhostBtn?.addEventListener("click", () => {
+    void openMira("http://localhost:3000");
+  });
+  toggleDevBarBtn?.addEventListener("click", () => {
+    setDevBarOpen(true);
+  });
+  hideDevBarBtn?.addEventListener("click", () => {
+    setDevBarOpen(false);
+  });
+  changeOriginBtn?.addEventListener("click", () => {
+    showBootForOriginEdit();
   });
 }
 
@@ -100,6 +154,7 @@ frame.addEventListener("load", () => {
     document.body.classList.add("is-framed");
     boot.hidden = true;
     frame.hidden = false;
+    syncDevBar(miraOrigin);
   }
 });
 

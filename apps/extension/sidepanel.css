@@ -36,6 +36,49 @@ body {
   gap: 0.55rem;
 }
 
+.origin-actions {
+  display: grid;
+  gap: 0.4rem;
+}
+
+button.btn-secondary {
+  background: transparent;
+  color: #1c1b18;
+  border: 1px solid rgba(28, 27, 24, 0.22);
+}
+
+.dev-bar {
+  display: none;
+  position: relative;
+  flex-shrink: 0;
+  z-index: 2;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.72rem;
+}
+
+.dev-bar-panel {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  padding: 0.35rem 0.55rem;
+  background: #1c1b18;
+  color: #f3f1ea;
+}
+
+.dev-bar.is-open .dev-bar-panel {
+  display: flex;
+}
+
+.dev-bar-origin {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
 .origin-field {
   display: grid;
   gap: 0.35rem;
@@ -63,6 +106,48 @@ button {
   cursor: pointer;
 }
 
+button.dev-bar-toggle {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  z-index: 3;
+  padding: 0.22rem 0.45rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-radius: 4px;
+  background: rgba(28, 27, 24, 0.78);
+  color: #f3f1ea;
+  opacity: 0.7;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  transition: opacity 0.15s ease;
+}
+
+button.dev-bar-toggle:hover,
+button.dev-bar-toggle:focus-visible {
+  opacity: 1;
+}
+
+.dev-bar.is-open button.dev-bar-toggle {
+  display: none;
+}
+
+.dev-bar-panel button {
+  flex: none;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.72rem;
+  border-radius: 4px;
+  background: #f3f1ea;
+  color: #1c1b18;
+}
+
+button.dev-bar-hide {
+  width: 1.5rem;
+  padding-inline: 0;
+  line-height: 1;
+  opacity: 0.8;
+}
+
 .error {
   margin: 0;
   color: #9a3412;
@@ -77,10 +162,26 @@ button {
   background: #fff;
 }
 
+body.is-framed {
+  display: flex;
+  flex-direction: column;
+}
+
 body.is-framed .boot {
   display: none;
 }
 
+body.is-framed .dev-bar:not([hidden]) {
+  display: block;
+}
+
+body.is-framed .dev-bar:not(.is-open) {
+  height: 0;
+  overflow: visible;
+}
+
 body.is-framed #frame {
   display: block;
+  flex: 1;
+  min-height: 0;
 }

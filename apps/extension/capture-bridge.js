@@ -7,6 +7,8 @@ let recognition = null;
 let shotTimer = null;
 let active = false;
 let startedAt = 0;
+/** Keep an open mic track so Chrome SpeechRecognition stays alive in the side panel. */
+let micStream = null;
 
 function postToFrame(frame, payload, targetOrigin) {
   if (!frame?.contentWindow) return;
@@ -18,10 +20,16 @@ async function ensureMic() {
   const { miraMicGranted } = await chrome.storage.local.get(["miraMicGranted"]);
   if (miraMicGranted) {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((t) => t.stop());
+      if (micStream) {
+        micStream.getTracks().forEach((t) => t.stop());
+        micStream = null;
+      }
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+      });
       return true;
     } catch {
+      micStream = null;
       await chrome.storage.local.set({ miraMicGranted: false });
     }
   }
@@ -179,6 +187,10 @@ export function stopExtensionCapture(frame, targetOrigin) {
       /* ignore */
     }
     recognition = null;
+  }
+  if (micStream) {
+    micStream.getTracks().forEach((t) => t.stop());
+    micStream = null;
   }
   postToFrame(frame, { type: "mira:capture-stopped" }, targetOrigin);
 }

@@ -3,6 +3,8 @@ import { describe, it } from "node:test";
 import {
   learnerAsksForHelp,
   learnerClaimsStepDone,
+  learnerWantsBreak,
+  learnerWantsResume,
   localLiveTutor,
   normalizeLiveTutorAction,
   sanitizeLiveTutorAction,
@@ -52,6 +54,30 @@ const map: WorkMap = {
   confirmed: true,
   corrections: [],
 };
+
+describe("break and resume voice cues", () => {
+  it("detects take-a-break phrases", () => {
+    assert.equal(learnerWantsBreak("I want to take a break"), true);
+    assert.equal(learnerWantsBreak("can we pause"), true);
+    assert.equal(learnerWantsBreak("pause the lesson"), true);
+    assert.equal(learnerWantsBreak("I'm busy"), true);
+    assert.equal(learnerWantsBreak("where do I click"), false);
+  });
+
+  it("detects resume phrases", () => {
+    assert.equal(learnerWantsResume("continue"), true);
+    assert.equal(learnerWantsResume("I'm back"), true);
+    assert.equal(learnerWantsResume("ready to continue"), true);
+    assert.equal(learnerWantsResume("take a break"), false);
+  });
+
+  it("does not treat break as step-done", () => {
+    assert.equal(
+      learnerClaimsStepDone("I want to take a break", "Open the invoice", "Opened INV-7200"),
+      false,
+    );
+  });
+});
 
 describe("localLiveTutor", () => {
   it("guides the current step before predicting", () => {
@@ -143,8 +169,27 @@ describe("localLiveTutor", () => {
     assert.match(out.speak, /Next/i);
   });
 
+  it("stays quiet on break phrases", () => {
+    const out = localLiveTutor({
+      expertFirst: "Jacob",
+      learnerFirst: "Lena",
+      map,
+      stepIndex: 0,
+      guidedThisStep: true,
+      awaitingPredict: true,
+      learnerSaid: "I want to take a break",
+      screenChanged: false,
+      elapsedMs: 8_000,
+    });
+    assert.equal(out.action, "skip");
+    assert.equal(out.speak, "");
+    assert.equal(out.stepIndex, 0);
+  });
+
   it("answers where-to-click without advancing", () => {
     assert.equal(learnerAsksForHelp("where do I click?"), true);
+    assert.equal(learnerAsksForHelp("what's the URL?"), true);
+    assert.equal(learnerAsksForHelp("what is the link"), true);
     const out = localLiveTutor({
       expertFirst: "Jacob",
       learnerFirst: "Lena",

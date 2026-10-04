@@ -163,7 +163,30 @@ export function useLiveApprentice(controller: CaptureController | null, expertNa
       const out = (await res.json()) as { skip?: boolean; question?: string; kind?: QuestionKind };
       const now = controller.elapsed();
       if (out.skip || !out.question) {
-        // Don't burn pending activity on a skip — especially while under the ask bar.
+        // Under the ask bar, never spin forever on model skips — ask a simple catch-up.
+        if (questionsRef.current.length < APPRENTICE.minLiveQuestions) {
+          const guardrailYet = questionsRef.current.some((q) => q.kind === "guardrail");
+          const fallbackQ = guardrailYet
+            ? "What are you deciding on the screen right now, and why?"
+            : "Is there a limit here, or a point where you'd stop and ask someone?";
+          const fallbackKind: QuestionKind = guardrailYet ? "why" : "guardrail";
+          seenLinesRef.current = lines.length;
+          seenScreensRef.current = snapNow.screenChanges;
+          const q: LiveQuestion = {
+            id: createId("lq"),
+            t: now,
+            question: fallbackQ,
+            kind: fallbackKind,
+            answer: "",
+            momentId: moment?.id ?? momentsRef.current.at(-1)?.id ?? null,
+          };
+          setQuestionsBoth([...questionsRef.current, q]);
+          lastQuestionAtRef.current = now;
+          awaitingRef.current = q.id;
+          void enqueueSpeech(q.question);
+          return;
+        }
+        // Don't burn pending activity on a skip once the bar is met.
         lastQuestionAtRef.current = now - APPRENTICE.catchUpGapMs / 2;
         return;
       }
@@ -229,8 +252,16 @@ export function useLiveApprentice(controller: CaptureController | null, expertNa
         offRecord: s.offRecord,
         busy: busyRef.current,
       });
+      const deaf =
+        !s.offRecord &&
+        now > 8_000 &&
+        lines.length === 0 &&
+        !s.interimTranscript &&
+        !awaitingRef.current &&
+        !speakingRef.current &&
+        !busyRef.current;
       setUi({
-        label: state.label,
+        label: deaf ? "Can't hear you — talk out loud or type a note" : state.label,
         quietFrac: state.quietFrac,
         ready: state.quietFrac >= 1 && state.mayAsk,
         speaking: speakingRef.current,

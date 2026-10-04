@@ -13,11 +13,24 @@
       <div id="originControls" class="origin-controls" hidden>
         <label class="origin-field">
           <span>Mira URL (local only)</span>
-          <input id="origin" type="url" spellcheck="false" />
+          <input id="origin" type="url" spellcheck="false" placeholder="http://localhost:3000" />
         </label>
-        <button id="reload" type="button">Open</button>
+        <div class="origin-actions">
+          <button id="reload" type="button">Open</button>
+          <button id="useLocalhost" type="button" class="btn-secondary">Use localhost:3000</button>
+        </div>
       </div>
       <p id="error" class="error" hidden></p>
+    </div>
+    <div id="devBar" class="dev-bar" hidden>
+      <button id="toggleDevBar" type="button" class="dev-bar-toggle" aria-expanded="false" title="Show Mira URL">
+        URL
+      </button>
+      <div id="devBarPanel" class="dev-bar-panel" hidden>
+        <span id="devBarOrigin" class="dev-bar-origin"></span>
+        <button id="changeOrigin" type="button">Change</button>
+        <button id="hideDevBar" type="button" class="dev-bar-hide" title="Hide URL bar" aria-label="Hide URL bar">×</button>
+      </div>
     </div>
     <iframe
       id="frame"

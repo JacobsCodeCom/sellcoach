@@ -1,14 +1,14 @@
 "use client";
 
-import { FormEvent, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { HoldToTalk } from "@/components/HoldToTalk";
 import { VoiceEar } from "@/components/VoiceEar";
-import { cancelSpeech } from "@/lib/speak";
+import { cancelSpeech, onAgentSpeaking } from "@/lib/speak";
 
 type Props = {
   /**
-   * Thinking / checking: no input accepted.
-   * While Mira is speaking, hold-to-talk still works (barge-in cancels TTS).
+   * Thinking / checking: typed send waits.
+   * Speaking never blocks hold-to-talk — starting to talk, or Skip, stops the voice.
    */
   disabled: boolean;
   placeholder: string;
@@ -18,14 +18,18 @@ type Props = {
 /** Hold-to-talk with a live transcript preview, plus a typed fallback. */
 export function VoiceReply({ disabled, placeholder, onSubmit }: Props) {
   const [armed, setArmed] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
   const [micReady, setMicReady] = useState(false);
   const [interim, setInterim] = useState("");
   const [input, setInput] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
 
+  useEffect(() => onAgentSpeaking(setSpeaking), []);
+
   function send(text: string) {
     const cleaned = text.trim();
     if (!cleaned || disabled) return;
+    cancelSpeech();
     onSubmit(cleaned);
   }
 
@@ -56,7 +60,7 @@ export function VoiceReply({ disabled, placeholder, onSubmit }: Props) {
       {micReady ? (
         <HoldToTalk
           armed={armed}
-          disabled={disabled}
+          disabled={false}
           onArmedChange={(next) => {
             if (next) cancelSpeech();
             setArmed(next);
@@ -65,6 +69,11 @@ export function VoiceReply({ disabled, placeholder, onSubmit }: Props) {
       ) : (
         <p className="learn-hint">Allow the microphone to answer by voice, or type below.</p>
       )}
+      {speaking ? (
+        <button className="voice-skip" type="button" onClick={() => cancelSpeech()}>
+          Skip
+        </button>
+      ) : null}
       <form className="learn-type" onSubmit={onType}>
         <input
           ref={inputRef}

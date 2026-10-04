@@ -13,10 +13,29 @@ export const LIVE_TUTOR = {
   stuckMs: 25_000,
 };
 
-/** Learner is stuck or asking how / where to click. */
+/** Learner is stuck or asking how / where to click / what URL to open. */
 export function learnerAsksForHelp(said: string): boolean {
-  return /\b(where|which|how (do|did|can|to)|what do i|what should i|help|click|find|can'?t see|don'?t know|stuck|show me|point me)\b/i.test(
+  return /\b(where|which|how (do|did|can|to)|what('?s| is)? (the )?(url|link|page|address)|what (url|link|page)|what do i|what should i|help|click|find|can'?t see|don'?t know|stuck|show me|point me|open (the )?page)\b/i.test(
     said,
+  );
+}
+
+/** Learner wants to pause coaching and come back later. */
+export function learnerWantsBreak(said: string): boolean {
+  const text = said.trim();
+  if (!text) return false;
+  return /\b(take a break|need a break|want a break|pause( the)?( lesson| coaching| session)?|let'?s pause|can we pause|hold that thought|stop for now|put (this|it) on hold|i'?m busy|be right back|brb)\b/i.test(
+    text,
+  );
+}
+
+/** Learner is ready to continue after a break. */
+export function learnerWantsResume(said: string): boolean {
+  const text = said.trim();
+  if (!text) return false;
+  if (learnerWantsBreak(text)) return false;
+  return /\b(continue|resume|i'?m back|i am back|ready to (continue|go|resume)|let'?s (continue|go|resume)|keep going|unpause|start again)\b/i.test(
+    text,
   );
 }
 
@@ -25,7 +44,7 @@ export function learnerAsksForHelp(said: string): boolean {
  * Vague "got it" / "done" alone is not enough — need a strong cue or overlap with the step.
  */
 export function learnerClaimsStepDone(said: string, stepTitle: string, stepDecision: string, stepScreen = ""): boolean {
-  if (learnerAsksForHelp(said)) return false;
+  if (learnerAsksForHelp(said) || learnerWantsBreak(said) || learnerWantsResume(said)) return false;
   const text = said.toLowerCase();
   const strongCue =
     /\b(already|finished|completed|signed in|logged in|i'?m done|i am done|i did (that|it|this)|moved on|i'?ve done)\b/.test(
@@ -198,6 +217,19 @@ export function localLiveTutor(input: LiveTutorInput): LiveTutorAction {
 
   const said = (learnerSaid || "").trim();
   if (said) {
+    // Break / resume are handled in the client coach loop — stay quiet here.
+    if (learnerWantsBreak(said) || learnerWantsResume(said)) {
+      return tutorAction({
+        action: "skip",
+        speak: "",
+        stepIndex,
+        guardrailId: null,
+        stepId: step.id,
+        replayMomentId: null,
+        explain: "",
+      });
+    }
+
     // "Where do I click?" → concrete Work Map guidance + expert moment, do NOT advance.
     if (learnerAsksForHelp(said)) {
       return tutorAction({

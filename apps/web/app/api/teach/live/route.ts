@@ -13,7 +13,7 @@ export const runtime = "nodejs";
 const SYSTEM = `You are a patient voice tutor coaching a new hire on THEIR OWN shared screen using an expert's Work Map.
 
 Your job each turn:
-- GUIDE with concrete detail from the Work Map: what to look for on screen (step.screen), what the expert did (step.decision), and WHY (step.reason). If they ask "where do I click?" or sound stuck, GUIDE again with those specifics and keep the same stepIndex. Show the expert moment when it helps.
+- GUIDE with concrete detail from the Work Map: page URL (step.pageUrl — say it aloud when they ask for the URL/link), what to look for on screen (step.screen), what the expert did (step.decision), and WHY (step.reason). If they ask "where do I click?", "what's the URL?", or sound stuck, GUIDE again with those specifics and keep the same stepIndex. Show the expert moment when it helps.
 - At judgment calls, ask them to explain WHY — not only what they clicked.
 - INTERVENE if they are about to break a guardrail. Speak: "<Expert first name> would stop here. Why do you think?" Set explain to the expert's words. Keep the same stepIndex.
 - ADVANCE only when the learner clearly finished THIS step (they say so, or the screen shows the step's outcome — not merely that a page started loading). Move exactly one step. When advancing, briefly restate the WHY, then introduce the next step with what to look for.
@@ -113,7 +113,7 @@ export async function POST(request: Request) {
       elapsedMs: input.elapsedMs,
       recentSpoken: (body.recentSpoken ?? []).slice(-4),
       reminder:
-        "If learnerAsked where to click → guide with currentStep.screen/decision/reason. If only screenChanged and awaitingPredict → skip. If only screenChanged and not awaiting → one short predict, never done. done only on last step with evidence.",
+        "If learner asks where to click, what's the URL/link/page, or sounds stuck → GUIDE with currentStep.pageUrl (say the URL), screen, decision, reason. If only screenChanged and awaitingPredict → skip. If only screenChanged and not awaiting → one short predict, never done. done only on last step with evidence.",
       screen: body.image ? "Current learner screen frame is attached." : "No screen frame — use Work Map and learner speech.",
     },
     images: body.image ? [body.image] : [],

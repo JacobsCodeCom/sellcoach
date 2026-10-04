@@ -49,6 +49,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       knowledgeTopics: next.knowledgeTopics ?? [],
       captureTasks: next.captureTasks ?? [],
       learningSessions: next.learningSessions ?? [],
+      lessonCheckpoints: next.lessonCheckpoints ?? [],
     });
   }, []);
 

@@ -19,8 +19,10 @@ import {
   deletePublishedCapture,
   endLearningSession,
   expertNameForCapture,
+  getLessonCheckpoint,
   getRoadmapForMembership,
   markLessonProgress,
+  saveLessonCheckpoint,
   startLearningSession,
   type Store,
 } from "@/lib/repo";
@@ -118,6 +120,8 @@ export function LearnerHome({ store, user, membership, workRole, embedded = fals
         store={store}
         lesson={sessionLesson}
         learnerName={user.name}
+        membershipId={membership.id}
+        embedded={embedded}
         onPassed={() => onPassed(sessionLesson.id)}
         onExit={() => onExitSession(sessionLesson.id)}
       />
@@ -239,6 +243,19 @@ export function LearnerHome({ store, user, membership, workRole, embedded = fals
                     >
                       {row.title}
                     </button>
+                    {(() => {
+                      const checkpoint = getLessonCheckpoint(store, membership.id, row.lessonId);
+                      const stepTotal = capture?.workMap?.steps.length ?? 0;
+                      if (row.status !== "in_progress" || !checkpoint || stepTotal < 1) return null;
+                      return (
+                        <p className="learn-path-progress">
+                          Step {Math.min(checkpoint.stepIndex + 1, stepTotal)} of {stepTotal}
+                          {capture?.workMap?.steps[checkpoint.stepIndex]?.title
+                            ? ` · ${capture.workMap.steps[checkpoint.stepIndex].title}`
+                            : ""}
+                        </p>
+                      );
+                    })()}
                     <div className="learn-path-actions">
                       <button
                         type="button"
@@ -273,16 +290,22 @@ export function LessonSession({
   store,
   lesson,
   learnerName,
+  membershipId,
+  embedded = false,
   onPassed,
   onExit,
 }: {
   store: Store;
   lesson: Lesson;
   learnerName: string;
+  membershipId: string;
+  embedded?: boolean;
   onPassed: () => void;
   onExit: () => void;
 }) {
+  const { setStore } = useStore();
   const capture = lesson.kind === "workmap" ? captureForLesson(store, lesson) : null;
+  const checkpoint = getLessonCheckpoint(store, membershipId, lesson.id);
   if (capture?.workMap) {
     return (
       <WorkMapLesson
@@ -290,6 +313,17 @@ export function LessonSession({
         moments={capture.moments ?? []}
         expertName={expertNameForCapture(store, capture)}
         learnerName={learnerName}
+        embedded={embedded}
+        resumeStepIndex={checkpoint?.stepIndex ?? 0}
+        resumeGuided={checkpoint?.guidedThisStep ?? false}
+        onCheckpoint={(snap) => {
+          setStore(
+            saveLessonCheckpoint(membershipId, lesson.id, {
+              stepIndex: snap.stepIndex,
+              guidedThisStep: snap.guidedThisStep,
+            }),
+          );
+        }}
         onFinished={onPassed}
         onExit={onExit}
       />

@@ -4,6 +4,9 @@ import type { LiveCaptureResult, LiveCaptureSnapshot, TimedLine } from "@/lib/li
 
 type Listener = (snap: LiveCaptureSnapshot) => void;
 
+/** Ignore speaker echo right after Mira finishes talking. */
+const ECHO_TAIL_MS = 700;
+
 function emptySnap(): LiveCaptureSnapshot {
   return {
     status: "idle",
@@ -30,15 +33,23 @@ export class ExtensionCaptureController {
   private snap = emptySnap();
   private listeners = new Set<Listener>();
   private tickTimer: number | null = null;
+  private flushTimer: number | null = null;
   private latestFrame: string | null = null;
   private latestFrameUrl: string | null = null;
+  private lastThumb: Uint8ClampedArray | null = null;
   private muted = false;
+  private ignoreSpeechUntil = 0;
+  /** Finals heard while Mira was talking — flushed after echo tail. */
+  private mutedFinals: TimedLine[] = [];
   private result: LiveCaptureResult | null = null;
   private onMessage = (event: MessageEvent) => {
     const data = event.data;
     if (!data || data.source !== "mira-extension") return;
     if (data.type === "mira:capture-started") {
       const startedAt = typeof data.startedAt === "number" ? data.startedAt : Date.now();
+      this.mutedFinals = [];
+      this.lastThumb = null;
+      this.ignoreSpeechUntil = 0;
       this.update({
         status: "recording",
         startedAt,
@@ -61,29 +72,39 @@ export class ExtensionCaptureController {
       return;
     }
     if (data.type === "mira:capture-speech") {
-      if (this.snap.offRecord || this.muted || this.snap.status !== "recording") return;
+      if (this.snap.offRecord || this.snap.status !== "recording") return;
       const finals = Array.isArray(data.finals) ? (data.finals as TimedLine[]) : [];
       const interim = typeof data.interim === "string" ? data.interim : "";
-      const nextLines = finals.length ? [...this.snap.finalLines, ...finals] : this.snap.finalLines;
-      this.update({
-        finalLines: nextLines,
-        interimTranscript: interim,
-        lastSpeechAt: this.elapsed(),
-      });
+      // Side-panel mic + iframe TTS: still damp echo, but don't throw away real learner speech.
+      if (this.muted || Date.now() < this.ignoreSpeechUntil) {
+        if (finals.length) {
+          this.mutedFinals.push(...finals);
+          const buffered = this.mutedFinals
+            .map((l) => l.text)
+            .join(" ")
+            .trim();
+          // 3+ words → treat as barge-in, not speaker echo.
+          if (buffered.split(/\s+/).filter(Boolean).length >= 3) {
+            const ready = this.mutedFinals;
+            this.mutedFinals = [];
+            this.commitSpeech(ready, "");
+          }
+        }
+        return;
+      }
+      this.commitSpeech(finals, interim);
       return;
     }
     if (data.type === "mira:capture-frame" && typeof data.image === "string") {
       if (this.snap.offRecord || this.snap.status !== "recording") return;
-      this.latestFrame = data.image;
-      this.latestFrameUrl =
+      const nextUrl =
         typeof data.url === "string" && (data.url.startsWith("http://") || data.url.startsWith("https://"))
           ? data.url
           : null;
-      this.update({
-        screenChanges: this.snap.screenChanges + 1,
-        lastScreenChangeAt: this.elapsed(),
-        hasScreen: true,
-      });
+      const urlChanged = Boolean(nextUrl && nextUrl !== this.latestFrameUrl);
+      this.latestFrame = data.image;
+      this.latestFrameUrl = nextUrl;
+      void this.noteFrameChange(data.image, urlChanged);
       return;
     }
     if (data.type === "mira:capture-error") {
@@ -125,6 +146,8 @@ export class ExtensionCaptureController {
     this.result = null;
     this.latestFrame = null;
     this.latestFrameUrl = null;
+    this.lastThumb = null;
+    this.mutedFinals = [];
     this.update({ status: "requesting", error: null });
     window.parent.postMessage({ type: "mira:start-capture" }, "*");
 
@@ -170,6 +193,14 @@ export class ExtensionCaptureController {
   }
 
   setMuted(muted: boolean) {
+    if (this.muted && !muted) {
+      this.ignoreSpeechUntil = Date.now() + ECHO_TAIL_MS;
+      if (this.flushTimer != null) window.clearTimeout(this.flushTimer);
+      this.flushTimer = window.setTimeout(() => {
+        this.flushTimer = null;
+        this.flushMutedFinals();
+      }, ECHO_TAIL_MS);
+    }
     this.muted = muted;
     if (muted) this.update({ interimTranscript: "" });
   }
@@ -191,6 +222,64 @@ export class ExtensionCaptureController {
   dispose() {
     window.removeEventListener("message", this.onMessage);
     if (this.tickTimer != null) window.clearInterval(this.tickTimer);
+    if (this.flushTimer != null) window.clearTimeout(this.flushTimer);
+  }
+
+  private commitSpeech(finals: TimedLine[], interim: string) {
+    const nextLines = finals.length ? [...this.snap.finalLines, ...finals] : this.snap.finalLines;
+    this.update({
+      finalLines: nextLines,
+      interimTranscript: interim,
+      lastSpeechAt: this.elapsed(),
+    });
+  }
+
+  private flushMutedFinals() {
+    if (!this.mutedFinals.length || this.muted || this.snap.status !== "recording") return;
+    if (Date.now() < this.ignoreSpeechUntil) return;
+    const finals = this.mutedFinals;
+    this.mutedFinals = [];
+    this.commitSpeech(finals, "");
+  }
+
+  /** Count a screen change only on URL change or a real visual diff — not every 4s still. */
+  private async noteFrameChange(dataUrl: string, urlChanged: boolean) {
+    if (urlChanged) {
+      this.lastThumb = null;
+      this.update({
+        screenChanges: this.snap.screenChanges + 1,
+        lastScreenChangeAt: this.elapsed(),
+        hasScreen: true,
+      });
+      return;
+    }
+
+    try {
+      const thumb = await frameThumb(dataUrl);
+      if (!thumb) {
+        this.update({ hasScreen: true });
+        return;
+      }
+      const prev = this.lastThumb;
+      this.lastThumb = thumb;
+      if (!prev) {
+        this.update({ hasScreen: true });
+        return;
+      }
+      let diff = 0;
+      for (let i = 0; i < thumb.length; i += 1) diff += Math.abs(thumb[i] - prev[i]);
+      if (diff / thumb.length >= 12) {
+        this.update({
+          screenChanges: this.snap.screenChanges + 1,
+          lastScreenChangeAt: this.elapsed(),
+          hasScreen: true,
+        });
+      } else {
+        this.update({ hasScreen: true });
+      }
+    } catch {
+      this.update({ hasScreen: true });
+    }
   }
 
   private async finishStop(reason?: string): Promise<LiveCaptureResult> {
@@ -198,6 +287,11 @@ export class ExtensionCaptureController {
       window.clearInterval(this.tickTimer);
       this.tickTimer = null;
     }
+    if (this.flushTimer != null) {
+      window.clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    this.flushMutedFinals();
     const lines = [...this.snap.finalLines];
     const interim = this.snap.interimTranscript.trim();
     if (interim && !this.snap.offRecord) lines.push({ t: this.elapsed(), text: interim });
@@ -217,6 +311,31 @@ export class ExtensionCaptureController {
     this.snap = { ...this.snap, ...patch };
     for (const listener of this.listeners) listener(this.snap);
   }
+}
+
+function frameThumb(dataUrl: string): Promise<Uint8ClampedArray | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 32;
+      canvas.height = 18;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) {
+        resolve(null);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, 32, 18);
+      const data = ctx.getImageData(0, 0, 32, 18).data;
+      const grey = new Uint8ClampedArray(32 * 18);
+      for (let i = 0; i < grey.length; i += 1) {
+        grey[i] = (data[i * 4] * 3 + data[i * 4 + 1] * 6 + data[i * 4 + 2]) / 10;
+      }
+      resolve(grey);
+    };
+    img.onerror = () => resolve(null);
+    img.src = dataUrl;
+  });
 }
 
 export function isEmbeddedInExtension(): boolean {

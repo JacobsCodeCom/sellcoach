@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   LIVE_TUTOR,
+  learnerWantsBreak,
+  learnerWantsResume,
   type LiveTutorAction,
   type PracticeResult,
   type ScreenMoment,
@@ -21,6 +23,19 @@ export type LiveTutorUi = {
   awaiting: boolean;
   stepIndex: number;
   guidedThisStep: boolean;
+};
+
+export type LiveTutorCheckpoint = {
+  stepIndex: number;
+  guidedThisStep: boolean;
+};
+
+export type LiveTutorOptions = {
+  /** Restore mid-lesson progress when Continue opens a saved checkpoint. */
+  initialStepIndex?: number;
+  initialGuidedThisStep?: boolean;
+  /** Persist step progress after advances / breaks. */
+  onCheckpoint?: (snap: LiveTutorCheckpoint) => void;
 };
 
 export type LiveTutorIntervention = {
@@ -43,16 +58,25 @@ export function useLiveTutor(
   moments: ScreenMoment[],
   expertName: string,
   learnerName: string,
+  options?: LiveTutorOptions,
 ) {
+  const restoredStep = Math.max(
+    0,
+    Math.min(Math.max(0, map.steps.length - 1), Math.floor(options?.initialStepIndex ?? 0)),
+  );
+  const restoredGuided = Boolean(options?.initialGuidedThisStep) || restoredStep > 0;
+  const onCheckpoint = options?.onCheckpoint;
+
   const [snap, setSnap] = useState<LiveCaptureSnapshot | null>(() => controller?.getSnapshot() ?? null);
-  const [stepIndex, setStepIndex] = useState(0);
+  const [stepIndex, setStepIndex] = useState(restoredStep);
+  const [onBreak, setOnBreak] = useState(false);
   const [ui, setUi] = useState<LiveTutorUi>({
-    label: "Share your screen to begin",
+    label: "Start coaching to begin",
     speaking: false,
     busy: false,
     awaiting: false,
-    stepIndex: 0,
-    guidedThisStep: false,
+    stepIndex: restoredStep,
+    guidedThisStep: restoredGuided,
   });
   const [intervention, setIntervention] = useState<LiveTutorIntervention | null>(null);
   const [results, setResults] = useState<PracticeResult[]>([]);
@@ -60,11 +84,12 @@ export function useLiveTutor(
   const [lastSpeak, setLastSpeak] = useState("");
   const [heard, setHeard] = useState("");
 
-  const stepIndexRef = useRef(0);
-  const guidedRef = useRef(false);
+  const stepIndexRef = useRef(restoredStep);
+  const guidedRef = useRef(restoredGuided);
   const awaitingRef = useRef(false);
   const speakingRef = useRef(false);
   const busyRef = useRef(false);
+  const onBreakRef = useRef(false);
   const greetedRef = useRef(false);
   const lastTurnAtRef = useRef(-LIVE_TUTOR.minGapMs);
   const seenScreensRef = useRef(0);
@@ -74,6 +99,15 @@ export function useLiveTutor(
   const finishedRef = useRef(false);
   const askWhyRef = useRef(false);
   const interventionRef = useRef<LiveTutorIntervention | null>(null);
+  const onCheckpointRef = useRef(onCheckpoint);
+  onCheckpointRef.current = onCheckpoint;
+
+  const persistCheckpoint = useCallback(() => {
+    onCheckpointRef.current?.({
+      stepIndex: stepIndexRef.current,
+      guidedThisStep: guidedRef.current,
+    });
+  }, []);
 
   const expertFirst = expertName.split(/\s+/)[0] || "Your colleague";
   const learnerFirst = learnerName.split(/\s+/)[0] || "there";
@@ -169,11 +203,14 @@ export function useLiveTutor(
         setIntervention(null);
         lastTurnAtRef.current = controller?.elapsed() ?? 0;
         recordResult({ guardrailId: action.guardrailId, stepId: action.stepId, passed: true });
+        persistCheckpoint();
       }
 
       if (action.action === "done") {
         finishedRef.current = true;
         setFinished(true);
+        onBreakRef.current = false;
+        setOnBreak(false);
         awaitingRef.current = false;
         lastTurnAtRef.current = controller?.elapsed() ?? 0;
         if (action.stepId || action.guardrailId) {
@@ -193,13 +230,13 @@ export function useLiveTutor(
             : action.action === "intervene"
               ? `${expertFirst} would stop here`
               : awaitingRef.current
-                ? "Listening — ask where to click, or say what you did"
+                ? "Just talk — Mira is listening"
                 : action.action === "guide"
                   ? `Step ${stepIndexRef.current + 1}`
                   : u.label,
       }));
     },
-    [controller, map.steps.length, recordResult, expertFirst],
+    [controller, map.steps.length, recordResult, expertFirst, persistCheckpoint],
   );
 
   const maybeHighlight = useCallback(
@@ -231,9 +268,58 @@ export function useLiveTutor(
     [controller, map.steps, moments],
   );
 
+  const pauseBreak = useCallback(() => {
+    if (!controller || finishedRef.current || onBreakRef.current) return;
+    onBreakRef.current = true;
+    setOnBreak(true);
+    busyRef.current = false;
+    cancelSpeech();
+    const step = map.steps[stepIndexRef.current];
+    const line = `Sure — take a break. You're on step ${stepIndexRef.current + 1} of ${map.steps.length}${
+      step ? `: ${step.title}` : ""
+    }. Say continue whenever you're ready.`;
+    recentSpokenRef.current = [...recentSpokenRef.current, line].slice(-8);
+    setLastSpeak(line);
+    void enqueueSpeech(line);
+    persistCheckpoint();
+    setUi((u) => ({
+      ...u,
+      busy: false,
+      awaiting: false,
+      stepIndex: stepIndexRef.current,
+      guidedThisStep: guidedRef.current,
+      label: `On a break · Step ${stepIndexRef.current + 1} of ${map.steps.length}`,
+    }));
+  }, [controller, map.steps, persistCheckpoint]);
+
+  const resumeBreak = useCallback(() => {
+    if (!controller || finishedRef.current || !onBreakRef.current) return;
+    onBreakRef.current = false;
+    setOnBreak(false);
+    cancelSpeech();
+    const step = map.steps[stepIndexRef.current];
+    const line = `Welcome back. Still on step ${stepIndexRef.current + 1}${
+      step ? `: ${step.title}` : ""
+    }. Say when you've done it, or ask for a hint.`;
+    recentSpokenRef.current = [...recentSpokenRef.current, line].slice(-8);
+    setLastSpeak(line);
+    void enqueueSpeech(line);
+    guidedRef.current = true;
+    awaitingRef.current = true;
+    lastTurnAtRef.current = controller.elapsed();
+    setUi((u) => ({
+      ...u,
+      busy: false,
+      awaiting: true,
+      stepIndex: stepIndexRef.current,
+      guidedThisStep: true,
+      label: "Just talk — Mira is listening",
+    }));
+  }, [controller, map.steps]);
+
   const turn = useCallback(
     async (opts?: { learnerSaid?: string; force?: boolean; forceHint?: boolean; explicitHint?: boolean }) => {
-      if (!controller || finishedRef.current || busyRef.current) return;
+      if (!controller || finishedRef.current || busyRef.current || onBreakRef.current) return;
       const s = controller.getSnapshot();
       if (s.status !== "recording" || s.offRecord) return;
 
@@ -307,7 +393,7 @@ export function useLiveTutor(
           label: finishedRef.current
             ? "Lesson complete"
             : awaitingRef.current
-              ? "Listening — ask where to click, or say what you did"
+              ? "Just talk — Mira is listening"
               : u.label,
         }));
       }
@@ -320,6 +406,24 @@ export function useLiveTutor(
       const cleaned = text.trim();
       if (!cleaned || !controller || finishedRef.current) return;
       setHeard(cleaned);
+
+      if (onBreakRef.current) {
+        if (learnerWantsResume(cleaned)) {
+          resumeBreak();
+          return;
+        }
+        if (learnerWantsBreak(cleaned)) return;
+        cancelSpeech();
+        const remind = `Still on a break — step ${stepIndexRef.current + 1} of ${map.steps.length}. Say continue when you're ready.`;
+        void enqueueSpeech(remind);
+        setLastSpeak(remind);
+        return;
+      }
+
+      if (learnerWantsBreak(cleaned)) {
+        pauseBreak();
+        return;
+      }
 
       const iv = interventionRef.current;
       if (askWhyRef.current && iv && !iv.whyAsked) {
@@ -334,7 +438,7 @@ export function useLiveTutor(
         awaitingRef.current = true;
         askWhyRef.current = false;
         lastTurnAtRef.current = controller.elapsed();
-        setUi((u) => ({ ...u, awaiting: true, label: "Listening — continue when ready" }));
+        setUi((u) => ({ ...u, awaiting: true, label: "Just talk — Mira is listening" }));
         // After explaining, treat a follow-up "ok / done" as advance on the next utterance.
         return;
       }
@@ -342,7 +446,7 @@ export function useLiveTutor(
       cancelSpeech();
       void turn({ learnerSaid: cleaned, force: true });
     },
-    [controller, expertFirst, turn],
+    [controller, expertFirst, turn, pauseBreak, resumeBreak, map.steps.length],
   );
 
   useEffect(() => {
@@ -354,41 +458,63 @@ export function useLiveTutor(
 
       if (!greetedRef.current) {
         greetedRef.current = true;
-        const first = map.steps[0];
-        const intro = `Hi ${learnerCall}. I'll coach you the way ${expertFirst} does this. Ask me where to click anytime — I won't skip ahead until you finish each step.`;
-        const stepLine = first
-          ? ` First: ${first.title}.${first.screen ? ` Look for: ${first.screen}.` : ""}${first.decision ? ` ${expertFirst} did: ${first.decision}.` : ""}`
-          : "";
+        const current = map.steps[stepIndexRef.current] ?? map.steps[0];
+        const resuming = stepIndexRef.current > 0 || restoredGuided;
+        const intro = resuming
+          ? `Welcome back, ${learnerCall}. Picking up at step ${stepIndexRef.current + 1} of ${map.steps.length}${
+              current ? `: ${current.title}` : ""
+            }. Just talk when you're ready — say if you want a break.`
+          : `Hi ${learnerCall}. I'll coach you the way ${expertFirst} does this. Just talk while you work — ask if you're stuck, or say you want a break. I won't skip ahead until you finish each step.`;
+        const stepLine =
+          !resuming && current
+            ? ` First: ${current.title}.${current.screen ? ` Look for: ${current.screen}.` : ""}`
+            : "";
         void enqueueSpeech(`${intro}${stepLine}`);
         recentSpokenRef.current = [`${intro}${stepLine}`];
         setLastSpeak(`${intro}${stepLine}`);
         lastTurnAtRef.current = now;
-        guidedRef.current = Boolean(first);
-        awaitingRef.current = Boolean(first);
+        guidedRef.current = Boolean(current) || restoredGuided;
+        awaitingRef.current = Boolean(current);
         seenLinesRef.current = s.finalLines.length;
         setUi((u) => ({
           ...u,
-          label: first ? "Listening — ask where to click, or say what you did" : "Ready",
-          guidedThisStep: Boolean(first),
-          awaiting: Boolean(first),
+          label: current ? "Just talk — Mira is listening" : "Ready",
+          guidedThisStep: guidedRef.current,
+          awaiting: Boolean(current),
+          stepIndex: stepIndexRef.current,
         }));
         return;
       }
 
       if (finishedRef.current) return;
 
-      // Pick up natural speech from the shared mic (not only hold-to-talk).
-      if (!speakingRef.current && !busyRef.current && s.finalLines.length > seenLinesRef.current) {
+      // Pick up natural speech from the shared mic (barge-in while Mira talks).
+      // Also listens while on a break so "continue" can resume coaching.
+      if (!busyRef.current && s.finalLines.length > seenLinesRef.current) {
         const quietFor = now - s.lastSpeechAt;
         if (quietFor >= LIVE_TUTOR.quietMs) {
           const fresh = s.finalLines.slice(seenLinesRef.current);
           seenLinesRef.current = s.finalLines.length;
           const text = fresh.map((l) => l.text).join(" ").trim();
           if (text) {
+            if (speakingRef.current) cancelSpeech();
             handleLearnerSpeech(text);
             return;
           }
         }
+      }
+
+      if (onBreakRef.current) {
+        setUi((u) => ({
+          ...u,
+          speaking: speakingRef.current,
+          busy: false,
+          awaiting: false,
+          stepIndex: stepIndexRef.current,
+          guidedThisStep: guidedRef.current,
+          label: `On a break · Step ${stepIndexRef.current + 1} of ${map.steps.length}`,
+        }));
+        return;
       }
 
       const lastActivity = Math.max(s.lastSpeechAt, s.lastScreenChangeAt);
@@ -407,9 +533,9 @@ export function useLiveTutor(
             : busyRef.current
               ? "Got it…"
               : awaitingRef.current
-                ? "Listening — ask where to click, or say what you did"
+                ? "Just talk — Mira is listening"
                 : quietFrac >= 1
-                  ? "Pause detected"
+                  ? "Waiting — say what you're doing, or ask for a hint"
                   : "You're working — staying quiet",
       }));
 
@@ -417,7 +543,7 @@ export function useLiveTutor(
       if (!isPromoDemo()) void turn();
     }, 400);
     return () => window.clearInterval(timer);
-  }, [controller, turn, handleLearnerSpeech, expertFirst, learnerCall, map.steps]);
+  }, [controller, turn, handleLearnerSpeech, expertFirst, learnerCall, map.steps, restoredGuided]);
 
   const submitAnswer = useCallback(
     (text: string) => {
@@ -432,7 +558,7 @@ export function useLiveTutor(
   }, [handleLearnerSpeech]);
 
   const askForHint = useCallback(() => {
-    if (finishedRef.current || busyRef.current) return;
+    if (finishedRef.current || busyRef.current || onBreakRef.current) return;
     cancelSpeech();
     if (isPromoDemo()) {
       const step = map.steps[stepIndexRef.current];
@@ -493,6 +619,7 @@ export function useLiveTutor(
     snap,
     ui,
     stepIndex,
+    onBreak,
     intervention,
     results,
     finished,
@@ -502,6 +629,9 @@ export function useLiveTutor(
     submitAnswer,
     markStepDone,
     askForHint,
+    pauseBreak,
+    resumeBreak,
+    persistCheckpoint,
     moments,
   };
 }

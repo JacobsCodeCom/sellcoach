@@ -1,5 +1,6 @@
 let chain: Promise<void> = Promise.resolve();
 let pending = 0;
+let speakGen = 0;
 let current: HTMLAudioElement | null = null;
 let resolveCurrent: (() => void) | null = null;
 const listeners = new Set<(speaking: boolean) => void>();
@@ -98,9 +99,9 @@ function endCurrentPlayback() {
   finish?.();
 }
 
-async function speakText(text: string) {
+async function speakText(text: string, gen: number) {
   const clean = text.trim();
-  if (!clean) return;
+  if (!clean || gen !== speakGen) return;
   try {
     const response = await fetch("/api/speak", {
       method: "POST",
@@ -108,13 +109,20 @@ async function speakText(text: string) {
       body: JSON.stringify({ text: clean }),
       signal: AbortSignal.timeout(12_000),
     });
+    if (gen !== speakGen) return;
     if (response.ok) {
       // Read as a stream so the first chunks aren't blocked behind a full arrayBuffer
       // on the server; Audio still needs a blob URL, but the network starts sooner.
       const blob = await response.blob();
+      if (gen !== speakGen) return;
       const url = URL.createObjectURL(blob);
       await withTimeout(
         new Promise<void>((resolve) => {
+          if (gen !== speakGen) {
+            URL.revokeObjectURL(url);
+            resolve();
+            return;
+          }
           const audio = new Audio(url);
           current = audio;
           resolveCurrent = () => {
@@ -147,6 +155,7 @@ async function speakText(text: string) {
   } catch {
     /* browser voice */
   }
+  if (gen !== speakGen) return;
   await withTimeout(browserSpeak(clean), 6_000);
 }
 
@@ -173,11 +182,13 @@ export function enqueueSpeech(text: string) {
     /* continue to real speech */
   }
 
+  const gen = speakGen;
   pending += 1;
   emit(true);
   chain = chain
-    .then(() => speakText(plain))
+    .then(() => speakText(plain, gen))
     .finally(() => {
+      if (gen !== speakGen) return;
       pending -= 1;
       if (pending <= 0) {
         pending = 0;
@@ -188,6 +199,7 @@ export function enqueueSpeech(text: string) {
 }
 
 export function cancelSpeech() {
+  speakGen += 1;
   pending = 0;
   chain = Promise.resolve();
   endCurrentPlayback();

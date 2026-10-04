@@ -170,6 +170,12 @@ export function RecordStep({ controller, expertName, onDone, embedded = false }:
         </div>
 
         {thread}
+        {recording && !(snap?.finalLines.length || typed) ? (
+          <p className="muted ext-record-hint">
+            Talk through what you&apos;re doing. Mira asks at pauses — you should see the question here
+            within about 15s.
+          </p>
+        ) : null}
         {typeForm}
         {actions}
       </div>

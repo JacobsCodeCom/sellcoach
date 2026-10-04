@@ -10,7 +10,11 @@ export async function POST(request: Request) {
   const key = process.env.ELEVENLABS_API_KEY;
   if (!key) return Response.json({ error: "no-key" }, { status: 501 });
 
-  const body = (await request.json().catch(() => ({}))) as { text?: string };
+  const body = (await request.json().catch(() => ({}))) as {
+    text?: string;
+    /** Promo / walkthrough narration — more expressive voice + settings. */
+    promo?: boolean;
+  };
   // Keep [audio tags]; only collapse whitespace.
   const text = String(body.text || "")
     .replace(/[^\S\n]+/g, " ")
@@ -19,8 +23,18 @@ export async function POST(request: Request) {
     .slice(0, 600);
   if (!text) return Response.json({ error: "empty" }, { status: 400 });
 
-  const voiceId = process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM";
-  const modelId = process.env.ELEVENLABS_MODEL_ID || "eleven_v4_turbo";
+  const promo = Boolean(body.promo);
+  // Product default: Rachel + turbo. Promo: George + fuller model (tags land better).
+  const voiceId =
+    (promo
+      ? process.env.ELEVENLABS_PROMO_VOICE_ID || process.env.ELEVENLABS_VOICE_ID
+      : process.env.ELEVENLABS_VOICE_ID) ||
+    (promo ? "JBFqnCBsd6RMkjVDRZzb" : "21m00Tcm4TlvDq8ikWAM");
+  // Promo prefers v3 when available (audio tags like [curious]); fall back via env.
+  const modelId =
+    (promo
+      ? process.env.ELEVENLABS_PROMO_MODEL_ID || process.env.ELEVENLABS_MODEL_ID
+      : process.env.ELEVENLABS_MODEL_ID) || (promo ? "eleven_v3" : "eleven_v4_turbo");
 
   // Prefer the streaming endpoint so bytes start flowing sooner; still buffer once
   // for browser Audio() playback, but ElevenLabs can start synthesis with lower latency.
@@ -34,11 +48,18 @@ export async function POST(request: Request) {
     body: JSON.stringify({
       text,
       model_id: modelId,
-      optimize_streaming_latency: 3,
-      voice_settings: {
-        stability: 0.5,
-        similarity_boost: 0.75,
-      },
+      optimize_streaming_latency: promo ? 0 : 3,
+      voice_settings: promo
+        ? {
+            stability: 0.28,
+            similarity_boost: 0.82,
+            style: 0.55,
+            use_speaker_boost: true,
+          }
+        : {
+            stability: 0.5,
+            similarity_boost: 0.75,
+          },
     }),
   });
 

@@ -270,7 +270,7 @@ export function DebriefStep({
   const replyControls =
     phase === "questions" ? (
       <div className="debrief-reply">
-        <VoiceReply disabled={speaking} placeholder="Or type your answer…" onSubmit={onAnswer} />
+        <VoiceReply disabled={false} placeholder="Or type your answer…" onSubmit={onAnswer} />
       </div>
     ) : phase === "teachback" ? (
       <div className="debrief-reply debrief-teachback">
@@ -285,14 +285,14 @@ export function DebriefStep({
           rows={embedded ? 5 : 6}
         />
         <VoiceReply
-          disabled={speaking}
+          disabled={false}
           placeholder="Say yes, or speak a correction…"
           onSubmit={confirmTeachBack}
         />
         <button
           className="btn btn-primary"
           type="button"
-          disabled={!teachBackDraft.trim() || speaking}
+          disabled={!teachBackDraft.trim()}
           onClick={() => confirmTeachBack("Yes, that's how it works")}
         >
           Yes, that&apos;s how it works
