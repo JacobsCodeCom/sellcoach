@@ -46,10 +46,76 @@
     </div>
 
     <div class="caption" id="caption" hidden></div>
+
+    <div class="tech-overlay" id="overlay-policy" hidden>
+      <div class="tech-card">
+        <p class="tech-kicker">Capture · apprentice policy</p>
+        <h2>Ask less. Ask later. Ask why.</h2>
+        <ul class="tech-list">
+          <li><strong>Quiet window</strong> ~3.5s — not mid-typing or speech</li>
+          <li><strong>Live bar</strong> ≥3 questions · ≥1 guardrail</li>
+          <li><strong>Grounded</strong> vision + transcript → one short spoken ask</li>
+        </ul>
+        <div class="tech-ring" aria-hidden>
+          <span class="tech-ring-fill"></span>
+          <span class="tech-ring-label">pause</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="tech-overlay" id="overlay-workmap" hidden>
+      <div class="tech-card tech-card--map">
+        <p class="tech-kicker">Map · structured judgment</p>
+        <h2>Work Map — not a transcript dump</h2>
+        <div class="map-grid">
+          <div>
+            <span>Decision</span>
+            <p>Route competitor talk to lead — don’t answer alone</p>
+          </div>
+          <div>
+            <span>Reason</span>
+            <p>“Needs a tighter story than a solo reply.”</p>
+          </div>
+          <div>
+            <span>Guardrail</span>
+            <p>Same-day escalate any competitor comparison</p>
+          </div>
+          <div>
+            <span>Moment</span>
+            <p>32s · Alpine Health ticket · expert quote linked</p>
+          </div>
+        </div>
+        <p class="tech-foot">Teach-back confirmed by expert before publish</p>
+      </div>
+    </div>
+
+    <div class="tech-overlay" id="overlay-stack" hidden>
+      <div class="tech-card tech-card--stack">
+        <p class="tech-kicker">Stack</p>
+        <h2>Thin shell · shared brain</h2>
+        <div class="stack-flow">
+          <div class="stack-node">Chrome MV3<br /><small>tab + mic</small></div>
+          <span class="stack-arrow">→</span>
+          <div class="stack-node">Next.js · Vercel<br /><small>APIs + /ext</small></div>
+          <span class="stack-arrow">→</span>
+          <div class="stack-node stack-node--core">
+            packages/core<br /><small>policy · map · tutor</small>
+          </div>
+        </div>
+        <ul class="stack-deps">
+          <li>Firebase Auth + Firestore</li>
+          <li>ElevenLabs Scribe + TTS</li>
+          <li>Vision LLM · redact · off-record</li>
+        </ul>
+      </div>
+    </div>
+
     <div class="endcard" id="endcard" hidden>
       <img src="/brand/mira-mark.svg" width="64" height="64" alt="" />
       <h1>Mira</h1>
-      <p>Your team learns from its best people.</p>
+      <p class="endcard-tagline" id="endcard-tagline">Your team learns from its best people.</p>
+      <p class="endcard-modules" id="endcard-modules" hidden>Capture → Map → Teach</p>
+      <p class="endcard-sub" id="endcard-sub" hidden>Judgment once. People first. Agents next.</p>
     </div>
 
     <script src="/promo/theater.js"></script>

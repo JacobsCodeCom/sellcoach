@@ -58,7 +58,7 @@ const SCREEN_CHECK_MS = 2000;
 /** Mean per-pixel grey difference (0–255) on a 32×18 thumbnail that counts as a screen change. */
 const SCREEN_CHANGE_THRESHOLD = 5;
 /** Ignore speech results this long after the apprentice stops talking (speaker echo). */
-const ECHO_TAIL_MS = 700;
+const ECHO_TAIL_MS = 1800;
 
 export type LiveCaptureStartOptions = {
   /**

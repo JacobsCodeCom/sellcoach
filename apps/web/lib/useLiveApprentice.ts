@@ -59,7 +59,8 @@ export function useLiveApprentice(controller: CaptureController | null, expertNa
   const speakingRef = useRef(false);
   const busyRef = useRef(false);
   const awaitingRef = useRef<string | null>(null);
-  const lastQuestionAtRef = useRef(APPRENTICE.firstQuestionAfterMs - APPRENTICE.minGapMs);
+  // Session clock starts at 0; firstQuestionAfterMs is enforced inside apprenticeState.
+  const lastQuestionAtRef = useRef(0);
   const seenLinesRef = useRef(0);
   const seenScreensRef = useRef(0);
   const lastTypedAtRef = useRef(0);
@@ -99,6 +100,8 @@ export function useLiveApprentice(controller: CaptureController | null, expertNa
 
   useEffect(() => {
     if (!controller) return;
+    // Capture must not treat Mira TTS echo on the laptop mic as expert speech.
+    if (controller instanceof ExtensionCaptureController) controller.setBargeIn(false);
     return controller.subscribe(setSnap);
   }, [controller]);
 
@@ -134,12 +137,31 @@ export function useLiveApprentice(controller: CaptureController | null, expertNa
     [setQuestionsBoth],
   );
 
+  const stillQuietToAsk = useCallback(() => {
+    if (!controller || speakingRef.current || awaitingRef.current) return false;
+    const s = controller.getSnapshot();
+    if (s.offRecord || s.interimTranscript.trim()) return false;
+    const lastActivity = Math.max(s.lastSpeechAt, s.lastScreenChangeAt, lastTypedAtRef.current);
+    if (lastActivity <= 0) return false;
+    return controller.elapsed() - lastActivity >= APPRENTICE.quietMs;
+  }, [controller]);
+
   const ask = useCallback(async () => {
     if (!controller) return;
+    const linesAtStart = expertLines();
+    // Hard gate: never call the model / invent a question before they've spoken.
+    if (linesAtStart.length === 0 || controller.elapsed() < APPRENTICE.firstQuestionAfterMs) {
+      lastQuestionAtRef.current = Math.max(0, controller.elapsed() - APPRENTICE.catchUpGapMs / 2);
+      return;
+    }
     busyRef.current = true;
     try {
       const moment = await addMoment();
       const lines = expertLines();
+      if (lines.length === 0) {
+        lastQuestionAtRef.current = controller.elapsed() - APPRENTICE.catchUpGapMs / 2;
+        return;
+      }
       const snapNow = controller.getSnapshot();
       const recent: TranscriptLine[] = [
         ...lines,
@@ -162,31 +184,13 @@ export function useLiveApprentice(controller: CaptureController | null, expertNa
       });
       const out = (await res.json()) as { skip?: boolean; question?: string; kind?: QuestionKind };
       const now = controller.elapsed();
+      // Fetch can take seconds — never talk over them if they resumed speaking.
+      if (!stillQuietToAsk() || expertLines().length === 0) {
+        lastQuestionAtRef.current = now - APPRENTICE.catchUpGapMs / 2;
+        return;
+      }
       if (out.skip || !out.question) {
-        // Under the ask bar, never spin forever on model skips — ask a simple catch-up.
-        if (questionsRef.current.length < APPRENTICE.minLiveQuestions) {
-          const guardrailYet = questionsRef.current.some((q) => q.kind === "guardrail");
-          const fallbackQ = guardrailYet
-            ? "What are you deciding on the screen right now, and why?"
-            : "Is there a limit here, or a point where you'd stop and ask someone?";
-          const fallbackKind: QuestionKind = guardrailYet ? "why" : "guardrail";
-          seenLinesRef.current = lines.length;
-          seenScreensRef.current = snapNow.screenChanges;
-          const q: LiveQuestion = {
-            id: createId("lq"),
-            t: now,
-            question: fallbackQ,
-            kind: fallbackKind,
-            answer: "",
-            momentId: moment?.id ?? momentsRef.current.at(-1)?.id ?? null,
-          };
-          setQuestionsBoth([...questionsRef.current, q]);
-          lastQuestionAtRef.current = now;
-          awaitingRef.current = q.id;
-          void enqueueSpeech(q.question);
-          return;
-        }
-        // Don't burn pending activity on a skip once the bar is met.
+        // Model skipped — wait for the next real pause. Do not invent a cold-open question.
         lastQuestionAtRef.current = now - APPRENTICE.catchUpGapMs / 2;
         return;
       }
@@ -209,7 +213,7 @@ export function useLiveApprentice(controller: CaptureController | null, expertNa
     } finally {
       busyRef.current = false;
     }
-  }, [controller, addMoment, expertLines, expertName, setQuestionsBoth]);
+  }, [controller, addMoment, expertLines, expertName, setQuestionsBoth, stillQuietToAsk]);
 
   useEffect(() => {
     if (!controller) return;
@@ -241,13 +245,19 @@ export function useLiveApprentice(controller: CaptureController | null, expertNa
         }
       }
 
+      const hearing = Boolean(s.interimTranscript.trim());
+      const askedCount = questionsRef.current.length;
+      const speechPending = lines.length - seenLinesRef.current;
+      const screenPending = s.screenChanges - seenScreensRef.current;
+      // First ask needs spoken material — screen flicker alone must not arm a question.
+      const pending = askedCount === 0 ? Math.max(0, speechPending) : speechPending + screenPending;
       const state = apprenticeState({
         now,
         lastActivity: Math.max(s.lastSpeechAt, s.lastScreenChangeAt, lastTypedAtRef.current),
         lastQuestionAt: lastQuestionAtRef.current,
-        pending: lines.length - seenLinesRef.current + (s.screenChanges - seenScreensRef.current),
-        asked: questionsRef.current.length,
-        speaking: speakingRef.current,
+        pending,
+        asked: askedCount,
+        speaking: speakingRef.current || hearing,
         awaitingAnswer: Boolean(awaitingRef.current),
         offRecord: s.offRecord,
         busy: busyRef.current,
@@ -256,7 +266,7 @@ export function useLiveApprentice(controller: CaptureController | null, expertNa
         !s.offRecord &&
         now > 8_000 &&
         lines.length === 0 &&
-        !s.interimTranscript &&
+        !hearing &&
         !awaitingRef.current &&
         !speakingRef.current &&
         !busyRef.current;

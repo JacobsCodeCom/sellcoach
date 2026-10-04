@@ -4,8 +4,8 @@ import type { LiveCaptureResult, LiveCaptureSnapshot, TimedLine } from "@/lib/li
 
 type Listener = (snap: LiveCaptureSnapshot) => void;
 
-/** Ignore speaker echo right after Mira finishes talking. */
-const ECHO_TAIL_MS = 700;
+/** Ignore speaker echo right after Mira finishes talking (mic + laptop speakers). */
+const ECHO_TAIL_MS = 1800;
 
 function emptySnap(): LiveCaptureSnapshot {
   return {
@@ -39,7 +39,12 @@ export class ExtensionCaptureController {
   private lastThumb: Uint8ClampedArray | null = null;
   private muted = false;
   private ignoreSpeechUntil = 0;
-  /** Finals heard while Mira was talking — flushed after echo tail. */
+  /**
+   * Learn mode only: commit speech over Mira so the learner can interrupt.
+   * Off for capture — TTS echo into the laptop mic must not become "expert" transcript.
+   */
+  private bargeIn = false;
+  /** Finals heard while Mira was talking — flushed after echo tail (learn barge-in). */
   private mutedFinals: TimedLine[] = [];
   private result: LiveCaptureResult | null = null;
   private onMessage = (event: MessageEvent) => {
@@ -75,15 +80,15 @@ export class ExtensionCaptureController {
       if (this.snap.offRecord || this.snap.status !== "recording") return;
       const finals = Array.isArray(data.finals) ? (data.finals as TimedLine[]) : [];
       const interim = typeof data.interim === "string" ? data.interim : "";
-      // Side-panel mic + iframe TTS: still damp echo, but don't throw away real learner speech.
+      // Mic hears laptop speakers — drop everything while Mira talks (+ echo tail).
       if (this.muted || Date.now() < this.ignoreSpeechUntil) {
-        if (finals.length) {
+        if (this.bargeIn && finals.length) {
           this.mutedFinals.push(...finals);
           const buffered = this.mutedFinals
             .map((l) => l.text)
             .join(" ")
             .trim();
-          // 3+ words → treat as barge-in, not speaker echo.
+          // 3+ words → treat as barge-in, not speaker echo (learn only).
           if (buffered.split(/\s+/).filter(Boolean).length >= 3) {
             const ready = this.mutedFinals;
             this.mutedFinals = [];
@@ -192,14 +197,24 @@ export class ExtensionCaptureController {
     return this.finishStop(reason);
   }
 
+  /** Enable learner barge-in during Mira speech. Keep off for expert capture. */
+  setBargeIn(enabled: boolean) {
+    this.bargeIn = enabled;
+    if (!enabled) this.mutedFinals = [];
+  }
+
   setMuted(muted: boolean) {
     if (this.muted && !muted) {
       this.ignoreSpeechUntil = Date.now() + ECHO_TAIL_MS;
-      if (this.flushTimer != null) window.clearTimeout(this.flushTimer);
-      this.flushTimer = window.setTimeout(() => {
-        this.flushTimer = null;
-        this.flushMutedFinals();
-      }, ECHO_TAIL_MS);
+      if (this.bargeIn) {
+        if (this.flushTimer != null) window.clearTimeout(this.flushTimer);
+        this.flushTimer = window.setTimeout(() => {
+          this.flushTimer = null;
+          this.flushMutedFinals();
+        }, ECHO_TAIL_MS);
+      } else {
+        this.mutedFinals = [];
+      }
     }
     this.muted = muted;
     if (muted) this.update({ interimTranscript: "" });

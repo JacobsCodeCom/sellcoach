@@ -11,7 +11,7 @@ import {
   type WorkMap,
 } from "@mira/core";
 import type { CaptureController, LiveCaptureSnapshot } from "@/lib/liveCapture";
-import { isEmbeddedInExtension } from "@/lib/extensionCapture";
+import { ExtensionCaptureController, isEmbeddedInExtension } from "@/lib/extensionCapture";
 import { isPromoDemo } from "@/lib/promoDemo";
 import { requestPageHighlight, type PageHighlightRect } from "@/lib/pageHighlight";
 import { cancelSpeech, enqueueSpeech, onAgentSpeaking } from "@/lib/speak";
@@ -116,6 +116,7 @@ export function useLiveTutor(
 
   useEffect(() => {
     if (!controller) return;
+    if (controller instanceof ExtensionCaptureController) controller.setBargeIn(true);
     return controller.subscribe(setSnap);
   }, [controller]);
 

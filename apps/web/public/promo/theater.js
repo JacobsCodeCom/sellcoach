@@ -73,6 +73,15 @@
     if (data.type === "mira:promo-spotlight") spotlight(data.target || "ticket-alpine");
   });
 
+  const overlays = {
+    policy: document.getElementById("overlay-policy"),
+    workmap: document.getElementById("overlay-workmap"),
+    stack: document.getElementById("overlay-stack"),
+  };
+  const endcardTagline = document.getElementById("endcard-tagline");
+  const endcardModules = document.getElementById("endcard-modules");
+  const endcardSub = document.getElementById("endcard-sub");
+
   window.miraPromo = {
     setCaption(text) {
       if (!text) {
@@ -83,7 +92,25 @@
       caption.hidden = false;
       caption.textContent = text;
     },
-    showEndcard() {
+    showOverlay(name) {
+      for (const [key, el] of Object.entries(overlays)) {
+        if (el) el.hidden = key !== name;
+      }
+    },
+    hideOverlays() {
+      for (const el of Object.values(overlays)) {
+        if (el) el.hidden = true;
+      }
+    },
+    showEndcard(opts = {}) {
+      const technical = Boolean(opts.technical);
+      if (endcardTagline) {
+        endcardTagline.textContent = technical
+          ? "An apprentice loop — not a recorder."
+          : "Your team learns from its best people.";
+      }
+      if (endcardModules) endcardModules.hidden = !technical;
+      if (endcardSub) endcardSub.hidden = !technical;
       endcard.hidden = false;
     },
     openLearn() {

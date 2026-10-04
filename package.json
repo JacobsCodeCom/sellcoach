@@ -7,6 +7,8 @@
     "dev:extension": "node apps/extension/scripts/print-dev-instructions.mjs",
     "extension:pack": "node apps/extension/scripts/pack-store.mjs",
     "promo:record": "node scripts/promo/record.mjs",
+    "promo:technical": "node scripts/promo/record-technical.mjs",
+    "promo:technical:live": "node scripts/promo/record-technical-live.mjs",
     "promo:assets": "node scripts/promo/store-assets.mjs",
     "promo:ffmpeg": "tools/ffmpeg/ffmpeg",
     "dev:demo": "pnpm --filter @mira/demo dev",

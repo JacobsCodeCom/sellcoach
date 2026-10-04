@@ -5,11 +5,11 @@
  */
 export const APPRENTICE = {
   /** No speech or screen change for this long counts as a pause. */
-  quietMs: 3500,
+  quietMs: 6000,
   /** After the live bar is met — stay mostly quiet (≈3–5 Q / 10 min). */
   minGapMs: 90_000,
   /** Shorter gap only while still under the required 3 questions. */
-  catchUpGapMs: 12_000,
+  catchUpGapMs: 20_000,
   /** Challenge: at least three live questions before wrapping up. */
   minLiveQuestions: 3,
   /** Challenge: at least one question about a limit / exception / stop-and-ask. */
@@ -17,7 +17,7 @@ export const APPRENTICE = {
   /** Soft cap — brief says three to five live; debrief covers the rest. */
   maxLiveQuestions: 5,
   /** Wait before the first ask so they can settle into the task. */
-  firstQuestionAfterMs: 12_000,
+  firstQuestionAfterMs: 25_000,
   /** Stop waiting for an answer after this long; move on. */
   answerTimeoutMs: 30_000,
 };
@@ -69,13 +69,16 @@ export type ApprenticeState = {
 };
 
 export function apprenticeState(input: ApprenticeInput, cfg = APPRENTICE): ApprenticeState {
-  const quietFor = input.now - input.lastActivity;
+  // 0 means "no speech/screen yet" — don't treat session start as an already-full pause.
+  const quietFor = input.lastActivity <= 0 ? 0 : input.now - input.lastActivity;
   const sinceQ = input.now - input.lastQuestionAt;
   const gapMs = effectiveMinGapMs(input.asked, cfg);
   const quietFrac = input.offRecord || input.awaitingAnswer ? 0 : Math.min(1, Math.max(0, quietFor / cfg.quietMs));
   /** Under the bar, keep asking on pauses even if they haven't moved on yet. */
   const catchingUp = input.asked < cfg.minLiveQuestions;
-  const hasSomethingToAskAbout = input.pending > 0 || catchingUp;
+  // First ask needs real material. Catch-up (asked > 0) may re-ask about what they covered.
+  const hasSomethingToAskAbout = input.pending > 0 || (catchingUp && input.asked > 0);
+  const settledIn = input.now >= cfg.firstQuestionAfterMs;
 
   let label: string;
   if (input.offRecord) label = "Off the record";
@@ -83,6 +86,7 @@ export function apprenticeState(input: ApprenticeInput, cfg = APPRENTICE): Appre
   else if (input.busy) label = "Thinking of a question…";
   else if (input.awaitingAnswer) label = "Waiting for your answer";
   else if (input.asked >= cfg.maxLiveQuestions) label = "Enough questions — wrap when ready";
+  else if (!settledIn) label = "Settling in…";
   else if (quietFor < cfg.quietMs) label = "You're busy, staying quiet";
   else if (!hasSomethingToAskAbout) label = "Quiet — saving the rest for the debrief";
   else if (sinceQ < gapMs) label = `Holding a question ${Math.ceil((gapMs - sinceQ) / 1000)}s`;
@@ -94,6 +98,7 @@ export function apprenticeState(input: ApprenticeInput, cfg = APPRENTICE): Appre
     !input.busy &&
     !input.speaking &&
     !input.awaitingAnswer &&
+    settledIn &&
     quietFor >= cfg.quietMs &&
     hasSomethingToAskAbout &&
     sinceQ >= gapMs &&

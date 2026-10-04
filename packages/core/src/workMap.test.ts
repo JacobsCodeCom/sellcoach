@@ -47,16 +47,40 @@ describe("apprenticeState", () => {
   it("asks only after a pause with something new", () => {
     assert.equal(apprenticeState(base).mayAsk, true);
     assert.equal(apprenticeState({ ...base, lastActivity: 59_000 }).mayAsk, false);
-    // Under the bar, pending can be 0 (catch-up). At/above the bar, need new material.
-    assert.equal(apprenticeState({ ...base, pending: 0 }).mayAsk, true);
+    // First ask still needs material; catch-up (asked > 0) can ask with pending 0.
+    assert.equal(apprenticeState({ ...base, pending: 0 }).mayAsk, false);
+    assert.equal(apprenticeState({ ...base, asked: 1, pending: 0 }).mayAsk, true);
     assert.equal(
       apprenticeState({ ...base, asked: APPRENTICE.minLiveQuestions, pending: 0 }).mayAsk,
       false,
     );
   });
 
+  it("waits to settle in before the first ask", () => {
+    const early = apprenticeState({
+      ...base,
+      now: APPRENTICE.firstQuestionAfterMs - 1,
+      lastActivity: 1_000,
+      lastQuestionAt: 0,
+      pending: 2,
+      asked: 0,
+    });
+    assert.equal(early.mayAsk, false);
+    assert.match(early.label, /Settling/);
+    // No speech/screen yet (lastActivity 0) must not count as a ready pause.
+    const neverStarted = apprenticeState({
+      ...base,
+      now: 30_000,
+      lastActivity: 0,
+      pending: 0,
+      asked: 0,
+    });
+    assert.equal(neverStarted.mayAsk, false);
+    assert.equal(neverStarted.quietFrac, 0);
+  });
+
   it("respects the gap, the cap and off the record", () => {
-    // 10s since last ask — under catch-up gap (20s).
+    // 10s since last ask — under catch-up gap.
     assert.equal(apprenticeState({ ...base, lastQuestionAt: 50_000 }).mayAsk, false);
     assert.match(apprenticeState({ ...base, lastQuestionAt: 50_000 }).label, /Holding/);
     assert.equal(apprenticeState({ ...base, asked: APPRENTICE.maxLiveQuestions }).mayAsk, false);
@@ -66,8 +90,8 @@ describe("apprenticeState", () => {
   });
 
   it("uses a shorter gap until the live question bar is met", () => {
-    // 25s since last ask: allowed while catching up (20s), blocked once at/above min (90s).
-    const catchingUp = apprenticeState({ ...base, asked: 0, lastQuestionAt: 35_000 });
+    // 25s since last ask: allowed while catching up, blocked once at/above min (90s).
+    const catchingUp = apprenticeState({ ...base, asked: 1, lastQuestionAt: 35_000 });
     assert.equal(catchingUp.mayAsk, true);
     const atBar = apprenticeState({
       ...base,
@@ -178,6 +202,12 @@ describe("local work map", () => {
       asked: [{ question: first.question, kind: first.kind }],
     });
     assert.ok(next.kind === "why" || next.kind === "guardrail" || next.kind === "exception");
+  });
+
+  it("skips a live question when the expert has not spoken yet", () => {
+    const empty = localLiveQuestion({ recent: [], asked: [] });
+    assert.equal(empty.skip, true);
+    assert.equal(empty.question, "");
   });
 });
 

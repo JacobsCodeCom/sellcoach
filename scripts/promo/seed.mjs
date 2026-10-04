@@ -4,26 +4,25 @@ const now = Date.now();
 const deskUrl = "http://localhost:3000/promo/desk.html";
 
 function momentSvg({ title, line1, line2, badge }) {
+  // No empty left rail — that reads as a black bar in stills/video.
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="720" height="420" viewBox="0 0 720 420">
   <rect width="720" height="420" fill="#f3f5f7"/>
-  <rect width="48" height="420" fill="#1f2329"/>
-  <rect x="10" y="12" width="28" height="28" rx="7" fill="#0f172a"/>
-  <rect x="48" width="200" height="420" fill="#ffffff" stroke="#e3e6ea"/>
-  <text x="64" y="36" font-family="Segoe UI, Helvetica, sans-serif" font-size="13" font-weight="700" fill="#1a1d21">Your inbox</text>
-  <rect x="60" y="56" width="176" height="72" rx="8" fill="#eaf3fb"/>
-  <text x="72" y="78" font-family="Segoe UI, Helvetica, sans-serif" font-size="12" font-weight="700" fill="#1a1d21">Maya Chen</text>
-  <text x="72" y="98" font-family="Segoe UI, Helvetica, sans-serif" font-size="11" fill="#68737d">Alpine Health · churn</text>
-  <rect x="248" width="472" height="420" fill="#ffffff"/>
-  <text x="268" y="40" font-family="Segoe UI, Helvetica, sans-serif" font-size="16" font-weight="700" fill="#1a1d21">${title}</text>
-  <rect x="560" y="22" width="120" height="24" rx="12" fill="#fff0f1"/>
-  <text x="620" y="38" text-anchor="middle" font-family="Segoe UI, Helvetica, sans-serif" font-size="11" font-weight="700" fill="#cc3340">${badge}</text>
-  <rect x="268" y="64" width="400" height="70" rx="10" fill="#ffffff" stroke="#e3e6ea"/>
-  <text x="284" y="92" font-family="Segoe UI, Helvetica, sans-serif" font-size="13" fill="#2f343b">${line1}</text>
-  <text x="284" y="114" font-family="Segoe UI, Helvetica, sans-serif" font-size="13" fill="#68737d">${line2}</text>
-  <rect x="268" y="150" width="400" height="90" rx="10" fill="#fffaf0" stroke="#f3d9a8"/>
-  <text x="284" y="178" font-family="Segoe UI, Helvetica, sans-serif" font-size="12" font-weight="700" fill="#ad6800">Internal note · Jordan Lee</text>
-  <text x="284" y="202" font-family="Segoe UI, Helvetica, sans-serif" font-size="12" fill="#2f343b">Two cancel mentions → escalate. Competitor same day.</text>
+  <rect width="200" height="420" fill="#ffffff" stroke="#e3e6ea"/>
+  <text x="16" y="36" font-family="Segoe UI, Helvetica, sans-serif" font-size="13" font-weight="700" fill="#1a1d21">Your inbox</text>
+  <rect x="12" y="56" width="176" height="72" rx="8" fill="#eaf3fb"/>
+  <text x="24" y="78" font-family="Segoe UI, Helvetica, sans-serif" font-size="12" font-weight="700" fill="#1a1d21">Maya Chen</text>
+  <text x="24" y="98" font-family="Segoe UI, Helvetica, sans-serif" font-size="11" fill="#68737d">Alpine Health · churn</text>
+  <rect x="200" width="520" height="420" fill="#ffffff"/>
+  <text x="220" y="40" font-family="Segoe UI, Helvetica, sans-serif" font-size="16" font-weight="700" fill="#1a1d21">${title}</text>
+  <rect x="560" y="22" width="140" height="24" rx="12" fill="#fff0f1"/>
+  <text x="630" y="38" text-anchor="middle" font-family="Segoe UI, Helvetica, sans-serif" font-size="11" font-weight="700" fill="#cc3340">${badge}</text>
+  <rect x="220" y="64" width="460" height="70" rx="10" fill="#ffffff" stroke="#e3e6ea"/>
+  <text x="236" y="92" font-family="Segoe UI, Helvetica, sans-serif" font-size="13" fill="#2f343b">${line1}</text>
+  <text x="236" y="114" font-family="Segoe UI, Helvetica, sans-serif" font-size="13" fill="#68737d">${line2}</text>
+  <rect x="220" y="150" width="460" height="90" rx="10" fill="#fffaf0" stroke="#f3d9a8"/>
+  <text x="236" y="178" font-family="Segoe UI, Helvetica, sans-serif" font-size="12" font-weight="700" fill="#ad6800">Internal note · Jordan Lee</text>
+  <text x="236" y="202" font-family="Segoe UI, Helvetica, sans-serif" font-size="12" fill="#2f343b">Two cancel mentions → escalate. Competitor same day.</text>
 </svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
@@ -257,8 +256,33 @@ export function buildPromoStore(opts = {}) {
     captures: [capture],
     lessons: [lesson],
     roadmaps: [roadmap],
-    agents: [],
-    abilities: [],
+    agents: [
+      {
+        id: "ag_promo_cs",
+        companyId: "co_acme",
+        name: "CS desk agent",
+        brief: "Runs confirmed Work Map steps; stops on guardrails and asks a human.",
+        workRoleId: "wr_expert",
+        status: "draft",
+        createdAt: now - 85_000_000,
+      },
+    ],
+    abilities: [
+      {
+        id: "ab_promo_churn",
+        agentId: "ag_promo_cs",
+        companyId: "co_acme",
+        name: "Handle churn-risk triage",
+        sourceCaptureId: capture.id,
+        sourceLessonId: lesson.id,
+        trigger: "manual",
+        triggerDescription: "",
+        notes: "Permission = confirmed Work Map. Judgment calls stay with people.",
+        extraGuardrails: [],
+        enabled: true,
+        createdAt: now - 84_900_000,
+      },
+    ],
     abilityRuns: [],
     integrationConnections: [],
     externalPeople: [],

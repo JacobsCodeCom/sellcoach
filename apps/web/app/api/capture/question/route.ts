@@ -34,7 +34,13 @@ export async function POST(request: Request) {
   const body = redactDeep((await request.json().catch(() => ({}))) as Body);
   const recent = (body.recent ?? []).slice(-10);
   const asked = (body.asked ?? []).slice(-8);
-  const fallback = localLiveQuestion({ recent: recent.filter((l) => l.who === "expert").map((l) => l.text), asked });
+  const expertLines = recent.filter((l) => l.who === "expert").map((l) => l.text);
+  const fallback = localLiveQuestion({ recent: expertLines, asked });
+
+  // Nothing spoken yet — do not invent a cold-open guardrail question.
+  if (!expertLines.some((t) => t.trim())) {
+    return Response.json({ skip: true, question: "", kind: "why", source: "empty" });
+  }
 
   const out = (await askJson({
     system: SYSTEM,
@@ -45,6 +51,7 @@ export async function POST(request: Request) {
       alreadyAsked: asked.map((q) => q.question),
       guardrailAskedYet: asked.some((q) => q.kind === "guardrail"),
       screen: body.image ? "The current screen is attached." : "No screen frame available.",
+      note: "If the expert has barely started or said nothing useful yet, skip.",
     },
     images: body.image ? [body.image] : [],
     maxTokens: 200,
@@ -55,7 +62,6 @@ export async function POST(request: Request) {
   const kind: QuestionKind = out.kind === "guardrail" || out.kind === "exception" ? out.kind : "why";
   const question = String(out.question || "").trim();
   if (out.skip || !question) {
-    // Model often skips with thin transcript/no frame — still ask so recording isn't stuck.
     if (!fallback.skip && fallback.question) {
       return Response.json({ ...fallback, source: "local-fallback" });
     }

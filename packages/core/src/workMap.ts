@@ -305,10 +305,12 @@ export function localLiveQuestion(input: {
   asked: Pick<LiveQuestion, "question" | "kind">[];
 }): { skip: boolean; question: string; kind: QuestionKind } {
   const last = input.recent.filter((l) => l.trim()).at(-1)?.trim() ?? "";
-  const about = last ? ` "${ruleLabelFromAnswer(last, 40)}"` : "";
+  // Never invent a cold-open question — wait until the expert has said something.
+  if (!last) return { skip: true, question: "", kind: "why" };
+  const about = ` "${ruleLabelFromAnswer(last, 40)}"`;
   const guardrailYet = input.asked.some((q) => q.kind === "guardrail");
   const pool: { question: string; kind: QuestionKind }[] = [
-    { question: `You just did${about || " that"}. What made you do it that way?`, kind: "why" },
+    { question: `You just did${about}. What made you do it that way?`, kind: "why" },
     { question: "Is there a limit there, or a point where you'd stop and ask someone?", kind: "guardrail" },
     { question: "When would you NOT do it like that?", kind: "exception" },
     { question: "What would a new person most likely get wrong at this point?", kind: "guardrail" },
