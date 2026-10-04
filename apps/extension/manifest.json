@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Mira",
+  "version": "0.2.1",
+  "description": "Learn and record Work Maps for your company: guided coaching plus one-click capture of how experts do the work.",
+  "homepage_url": "https://mira.jacobscode.com",
+  "action": {
+    "default_title": "Open Mira",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "permissions": ["sidePanel", "storage", "tabs", "scripting"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "externally_connectable": {
+    "matches": ["https://mira.jacobscode.com/*", "http://localhost:3000/*"]
+  }
+}

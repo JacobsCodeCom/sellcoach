@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acme Ops · Inbox</title>
+    <style>
+      :root {
+        --ink: #1a1d21;
+        --ink-2: #2f343b;
+        --muted: #68737d;
+        --muted-2: #87929d;
+        --line: #e3e6ea;
+        --line-2: #d8dce2;
+        --bg: #f3f5f7;
+        --panel: #ffffff;
+        --rail: #1f2329;
+        --rail-hover: #2b3139;
+        --accent: #1f73b7;
+        --accent-soft: #eaf3fb;
+        --danger: #cc3340;
+        --danger-soft: #fff0f1;
+        --warn: #ad6800;
+        --warn-soft: #fff7e6;
+        --ok: #0f6d3e;
+        --ok-soft: #e8f7ef;
+        --orange: #cf4b00;
+        --shadow: 0 1px 2px rgba(26, 29, 33, 0.06);
+        font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); }
+      button { font: inherit; }
+      .app {
+        display: grid;
+        /* Sized for theater: ~900px desk beside Mira side panel */
+        grid-template-columns: 48px 200px minmax(0, 1fr) 200px;
+        height: 100vh;
+        min-width: 0;
+      }
+
+      /* —— Icon rail (Zendesk / Intercom) —— */
+      .rail {
+        background: var(--rail);
+        color: #c7ced6;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 0.7rem 0.4rem;
+        gap: 0.35rem;
+      }
+      .rail-brand {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        margin-bottom: 0.55rem;
+      }
+      .rail button {
+        width: 36px;
+        height: 36px;
+        border: 0;
+        border-radius: 10px;
+        background: transparent;
+        color: inherit;
+        display: grid;
+        place-items: center;
+        cursor: default;
+      }
+      .rail button.active { background: var(--rail-hover); color: #fff; }
+      .rail button svg { width: 18px; height: 18px; }
+      .rail-spacer { flex: 1; }
+      .rail-avatar {
+        width: 30px;
+        height: 30px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, #fb923c, #ea580c);
+        color: #fff;
+        display: grid;
+        place-items: center;
+        font-size: 0.68rem;
+        font-weight: 700;
+      }
+
+      /* —— Views + conversation list —— */
+      .list-pane {
+        background: var(--panel);
+        border-right: 1px solid var(--line);
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .list-head {
+        padding: 0.85rem 0.9rem 0.65rem;
+        border-bottom: 1px solid var(--line);
+      }
+      .list-head-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        margin-bottom: 0.65rem;
+      }
+      .list-head h1 {
+        margin: 0;
+        font-size: 0.95rem;
+        letter-spacing: -0.02em;
+      }
+      .pill {
+        border: 1px solid var(--line);
+        background: #fff;
+        border-radius: 999px;
+        padding: 0.2rem 0.55rem;
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: var(--muted);
+      }
+      .search {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.45rem 0.65rem;
+        background: #f8f9fb;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+      .views {
+        display: flex;
+        gap: 0.35rem;
+        padding: 0.55rem 0.75rem;
+        border-bottom: 1px solid var(--line);
+        overflow: auto;
+      }
+      .views button {
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        padding: 0.3rem 0.55rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .views button.active { background: var(--accent-soft); color: var(--accent); }
+      .convos { flex: 1; overflow: auto; }
+      .convo {
+        width: 100%;
+        text-align: left;
+        border: 0;
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+        padding: 0.8rem 0.9rem;
+        cursor: default;
+      }
+      .convo.active {
+        background: var(--accent-soft);
+        box-shadow: inset 3px 0 0 var(--accent);
+      }
+      .convo.spotlight {
+        outline: 2px solid rgba(31, 115, 183, 0.45);
+        outline-offset: -2px;
+      }
+      .convo-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.5rem;
+        margin-bottom: 0.2rem;
+      }
+      .convo-top strong {
+        font-size: 0.84rem;
+        letter-spacing: -0.01em;
+      }
+      .convo-top time {
+        font-size: 0.7rem;
+        color: var(--muted-2);
+        white-space: nowrap;
+      }
+      .convo-sub {
+        margin: 0 0 0.35rem;
+        font-size: 0.78rem;
+        color: var(--ink-2);
+        font-weight: 600;
+      }
+      .convo-preview {
+        margin: 0;
+        font-size: 0.75rem;
+        color: var(--muted);
+        line-height: 1.35;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .convo-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+        margin-top: 0.45rem;
+      }
+      .tag {
+        font-size: 0.66rem;
+        font-weight: 700;
+        padding: 0.12rem 0.4rem;
+        border-radius: 999px;
+        background: #eef1f4;
+        color: var(--muted);
+      }
+      .tag.danger { background: var(--danger-soft); color: var(--danger); }
+      .tag.warn { background: var(--warn-soft); color: var(--warn); }
+      .tag.ok { background: var(--ok-soft); color: var(--ok); }
+      .tag.blue { background: var(--accent-soft); color: var(--accent); }
+
+      /* —— Thread —— */
+      .thread-pane {
+        background: var(--panel);
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        border-right: 1px solid var(--line);
+      }
+      .thread-head {
+        padding: 0.85rem 1.1rem;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: flex-start;
+      }
+      .thread-head h2 {
+        margin: 0 0 0.25rem;
+        font-size: 1.05rem;
+        letter-spacing: -0.02em;
+      }
+      .thread-meta {
+        margin: 0;
+        font-size: 0.78rem;
+        color: var(--muted);
+      }
+      .thread-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+      .thread-actions button {
+        border: 1px solid var(--line);
+        background: #fff;
+        border-radius: 8px;
+        padding: 0.35rem 0.65rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--ink-2);
+        box-shadow: var(--shadow);
+      }
+      .thread-actions button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      .thread-actions button.danger {
+        color: var(--danger);
+        border-color: #f3c1c5;
+      }
+      .messages {
+        flex: 1;
+        overflow: auto;
+        padding: 1rem 1.1rem 1.25rem;
+        background: linear-gradient(#fafbfc, #fff 120px);
+      }
+      .msg {
+        display: grid;
+        grid-template-columns: 34px minmax(0, 1fr);
+        gap: 0.7rem;
+        margin-bottom: 1.05rem;
+      }
+      .msg-avatar {
+        width: 34px;
+        height: 34px;
+        border-radius: 999px;
+        display: grid;
+        place-items: center;
+        font-size: 0.7rem;
+        font-weight: 800;
+        color: #fff;
+      }
+      .msg-avatar.cust { background: #6366f1; }
+      .msg-avatar.agent { background: #0f766e; }
+      .msg-avatar.note { background: #b45309; }
+      .msg-card {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+        padding: 0.75rem 0.85rem;
+        box-shadow: var(--shadow);
+      }
+      .msg.note .msg-card {
+        background: #fffaf0;
+        border-color: #f3d9a8;
+      }
+      .msg-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.5rem;
+        margin-bottom: 0.35rem;
+      }
+      .msg-top strong { font-size: 0.82rem; }
+      .msg-top span { font-size: 0.72rem; color: var(--muted-2); }
+      .msg-card p {
+        margin: 0;
+        font-size: 0.86rem;
+        line-height: 1.45;
+        color: var(--ink-2);
+      }
+      .msg-card p + p { margin-top: 0.45rem; }
+      .composer {
+        border-top: 1px solid var(--line);
+        padding: 0.75rem 1rem 0.9rem;
+        background: #fff;
+      }
+      .composer-tabs {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+      }
+      .composer-tabs span {
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: var(--muted);
+        padding: 0.2rem 0.45rem;
+        border-radius: 6px;
+      }
+      .composer-tabs span.active { background: var(--accent-soft); color: var(--accent); }
+      .composer-box {
+        border: 1px solid var(--line-2);
+        border-radius: 10px;
+        min-height: 72px;
+        padding: 0.7rem 0.8rem;
+        color: var(--muted-2);
+        font-size: 0.84rem;
+        background: #fbfcfd;
+      }
+      .composer-foot {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 0.55rem;
+      }
+      .composer-foot small { color: var(--muted-2); font-size: 0.72rem; }
+      .composer-foot button {
+        border: 0;
+        background: var(--ink);
+        color: #fff;
+        border-radius: 8px;
+        padding: 0.4rem 0.85rem;
+        font-size: 0.78rem;
+        font-weight: 700;
+      }
+
+      /* —— Customer details (right) —— */
+      .details {
+        background: #f8f9fb;
+        overflow: auto;
+      }
+      .details-block {
+        padding: 0.95rem 1rem;
+        border-bottom: 1px solid var(--line);
+      }
+      .details-block h3 {
+        margin: 0 0 0.7rem;
+        font-size: 0.72rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .person {
+        display: flex;
+        gap: 0.65rem;
+        align-items: center;
+        margin-bottom: 0.75rem;
+      }
+      .person-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 999px;
+        background: #6366f1;
+        color: #fff;
+        display: grid;
+        place-items: center;
+        font-weight: 800;
+        font-size: 0.8rem;
+      }
+      .person strong { display: block; font-size: 0.9rem; }
+      .person span { font-size: 0.75rem; color: var(--muted); }
+      .kv {
+        display: grid;
+        grid-template-columns: 64px minmax(0, 1fr);
+        gap: 0.35rem 0.45rem;
+        font-size: 0.72rem;
+        margin: 0;
+      }
+      .kv dt { color: var(--muted); }
+      .kv dd { margin: 0; color: var(--ink-2); font-weight: 600; }
+      .signal {
+        border: 1px solid var(--line);
+        background: #fff;
+        border-radius: 10px;
+        padding: 0.55rem 0.65rem;
+        margin-bottom: 0.45rem;
+        font-size: 0.76rem;
+        line-height: 1.35;
+      }
+      .signal strong { display: block; margin-bottom: 0.15rem; }
+      .signal.danger { border-color: #f3c1c5; background: var(--danger-soft); }
+      .signal.warn { border-color: #f3d9a8; background: var(--warn-soft); }
+      #ticket-alpine.spotlight .thread-head,
+      .thread-pane.spotlight .thread-head {
+        box-shadow: inset 0 -3px 0 var(--orange);
+      }
+      .thread-pane.spotlight {
+        box-shadow: inset 0 0 0 2px rgba(207, 75, 0, 0.35);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="rail" aria-label="Primary">
+        <img class="rail-brand" src="/promo/acme-ops-mark.svg" alt="Acme Ops" />
+        <button class="active" type="button" title="Inbox" aria-label="Inbox">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/></svg>
+        </button>
+        <button type="button" title="Customers" aria-label="Customers">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3 19c0-3 2.5-5 6-5s6 2 6 5"/><circle cx="17" cy="9" r="2.5"/><path d="M21 19c0-2.2-1.6-3.8-4-4.2"/></svg>
+        </button>
+        <button type="button" title="Reports" aria-label="Reports">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15v-4"/><path d="M12 15V8"/><path d="M16 15v-6"/></svg>
+        </button>
+        <button type="button" title="Knowledge" aria-label="Knowledge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 5h6a3 3 0 0 1 3 3v11H8a3 3 0 0 0-3 3z"/><path d="M19 5h-6a3 3 0 0 0-3 3v11h6a3 3 0 0 1 3 3z"/></svg>
+        </button>
+        <div class="rail-spacer"></div>
+        <div class="rail-avatar" title="Alex Rivera">AR</div>
+      </aside>
+
+      <section class="list-pane">
+        <div class="list-head">
+          <div class="list-head-top">
+            <h1>Customer success</h1>
+            <span class="pill">3 open</span>
+          </div>
+          <div class="search">⌕ Search conversations</div>
+        </div>
+        <div class="views">
+          <button class="active" type="button">Your inbox</button>
+          <button type="button">Unassigned</button>
+          <button type="button">Mentions</button>
+          <button type="button">All</button>
+        </div>
+        <div class="convos">
+          <button class="convo active" type="button" id="ticket-alpine">
+            <div class="convo-top">
+              <strong>Maya Chen · Alpine Health</strong>
+              <time>12m</time>
+            </div>
+            <p class="convo-sub">Considering cancellation — competitor comparison</p>
+            <p class="convo-preview">
+              “We might cancel if onboarding slips again… how do you compare to Northstar on support SLAs?”
+            </p>
+            <div class="convo-tags">
+              <span class="tag danger">Cancel ×2</span>
+              <span class="tag warn">Churn risk</span>
+              <span class="tag blue">Needs judgment</span>
+            </div>
+          </button>
+          <button class="convo" type="button">
+            <div class="convo-top">
+              <strong>Tom Hale · Northwind</strong>
+              <time>1h</time>
+            </div>
+            <p class="convo-sub">Need 3 extra seats before Friday</p>
+            <p class="convo-preview">Budget owner is OOO — can we provisional-activate seats?</p>
+            <div class="convo-tags"><span class="tag warn">Same day</span></div>
+          </button>
+          <button class="convo" type="button">
+            <div class="convo-top">
+              <strong>Priya Nair · Brightline</strong>
+              <time>Yesterday</time>
+            </div>
+            <p class="convo-sub">QBR prep for next week</p>
+            <p class="convo-preview">Usage looks healthy — send talking points?</p>
+            <div class="convo-tags"><span class="tag ok">On track</span></div>
+          </button>
+        </div>
+      </section>
+
+      <section class="thread-pane" id="thread-alpine">
+        <header class="thread-head">
+          <div>
+            <h2>Considering cancellation — competitor comparison</h2>
+            <p class="thread-meta">
+              Ticket #4821 · via email · Assigned to you · SLA 4h remaining
+            </p>
+          </div>
+          <div class="thread-actions">
+            <button type="button">Snooze</button>
+            <button class="danger" type="button">Escalate today</button>
+            <button class="primary" type="button">Mark pending</button>
+          </div>
+        </header>
+
+        <div class="messages">
+          <article class="msg">
+            <div class="msg-avatar cust">MC</div>
+            <div class="msg-card">
+              <div class="msg-top">
+                <strong>Maya Chen</strong>
+                <span>Mon 14:12</span>
+              </div>
+              <p>
+                Hi — onboarding has slipped twice and leadership is asking whether we should
+                <b>cancel</b> this quarter. Can someone from success jump on a call?
+              </p>
+            </div>
+          </article>
+
+          <article class="msg">
+            <div class="msg-avatar cust">MC</div>
+            <div class="msg-card">
+              <div class="msg-top">
+                <strong>Maya Chen</strong>
+                <span>Wed 09:40</span>
+              </div>
+              <p>
+                Following up — we’re still evaluating whether to <b>cancel</b>. The failed walkthrough
+                yesterday didn’t help.
+              </p>
+            </div>
+          </article>
+
+          <article class="msg">
+            <div class="msg-avatar cust">MC</div>
+            <div class="msg-card">
+              <div class="msg-top">
+                <strong>Maya Chen</strong>
+                <span>Thu 11:05</span>
+              </div>
+              <p>
+                Also — how do you compare to <b>Northstar</b> on support SLAs? That’s coming up in our
+                vendor review.
+              </p>
+            </div>
+          </article>
+
+          <article class="msg note">
+            <div class="msg-avatar note">JL</div>
+            <div class="msg-card">
+              <div class="msg-top">
+                <strong>Jordan Lee · internal note</strong>
+                <span>Thu 11:18</span>
+              </div>
+              <p>
+                Playbook: two cancel mentions in one week → escalate. Competitor comparison goes to lead
+                same day — don’t answer alone. Same-day recap after the failed call.
+              </p>
+            </div>
+          </article>
+
+          <article class="msg">
+            <div class="msg-avatar agent">AR</div>
+            <div class="msg-card">
+              <div class="msg-top">
+                <strong>You</strong>
+                <span>Drafting…</span>
+              </div>
+              <p>Thanks Maya — looking at Alpine’s timeline now and lining up next steps.</p>
+            </div>
+          </article>
+        </div>
+
+        <div class="composer">
+          <div class="composer-tabs">
+            <span class="active">Public reply</span>
+            <span>Internal note</span>
+            <span>Close as…</span>
+          </div>
+          <div class="composer-box">Write a reply or insert a macro…</div>
+          <div class="composer-foot">
+            <small>From success@acmeops.example · macros · attach</small>
+            <button type="button">Send</button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="details">
+        <div class="details-block">
+          <h3>Contact</h3>
+          <div class="person">
+            <div class="person-avatar">MC</div>
+            <div>
+              <strong>Maya Chen</strong>
+              <span>VP Operations · Alpine Health</span>
+            </div>
+          </div>
+          <dl class="kv">
+            <dt>Email</dt><dd>maya.chen@alpinehealth.example</dd>
+            <dt>Plan</dt><dd>Enterprise · ARR $84k</dd>
+            <dt>Owner</dt><dd>Alex Rivera</dd>
+            <dt>Health</dt><dd style="color: var(--danger)">At risk</dd>
+          </dl>
+        </div>
+        <div class="details-block">
+          <h3>Risk signals</h3>
+          <div class="signal danger">
+            <strong>Cancel mentioned twice</strong>
+            Mon 14:12 and Wed 09:40 — threshold met
+          </div>
+          <div class="signal warn">
+            <strong>Competitor: Northstar</strong>
+            Asked about support SLAs — same-day escalate
+          </div>
+          <div class="signal warn">
+            <strong>Failed onboarding call</strong>
+            Thu 16:20 — no same-day recap logged yet
+          </div>
+        </div>
+        <div class="details-block">
+          <h3>Company</h3>
+          <dl class="kv">
+            <dt>Segment</dt><dd>Healthcare SaaS</dd>
+            <dt>Seats</dt><dd>120</dd>
+            <dt>CSM</dt><dd>Jordan Lee (backup)</dd>
+            <dt>Renewal</dt><dd>47 days</dd>
+          </dl>
+        </div>
+      </aside>
+    </div>
+
+    <script>
+      window.addEventListener("message", (event) => {
+        const data = event.data;
+        if (!data || typeof data !== "object") return;
+        if (data.type !== "acme:spotlight") return;
+        document.querySelectorAll(".spotlight").forEach((el) => el.classList.remove("spotlight"));
+        const ticket = document.getElementById("ticket-alpine");
+        const thread = document.getElementById("thread-alpine");
+        ticket?.classList.add("spotlight");
+        thread?.classList.add("spotlight");
+        ticket?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      });
+    </script>
+  </body>
+</html>

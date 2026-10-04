@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mira · Extension promo</title>
+    <link rel="stylesheet" href="/promo/theater.css" />
+  </head>
+  <body>
+    <div class="chrome" id="chrome">
+      <div class="chrome-titlebar">
+        <div class="traffic">
+          <span></span><span></span><span></span>
+        </div>
+        <div class="tabs">
+          <div class="tab active">
+            <img class="tab-favicon" src="/promo/acme-ops-mark.svg" width="14" height="14" alt="" />
+            Acme Ops
+          </div>
+          <div class="tab ghost">New tab</div>
+        </div>
+      </div>
+      <div class="chrome-toolbar">
+        <div class="nav-btns" aria-hidden>
+          <span>←</span><span>→</span><span>↻</span>
+        </div>
+        <div class="omnibox">
+          <span class="lock">🔒</span>
+          <span id="omnibox-url">app.acmeops.example/inbox/conversations/4821</span>
+        </div>
+        <div class="ext-pin" title="Mira">
+          <img src="/brand/mira-mark.svg" width="18" height="18" alt="" />
+        </div>
+      </div>
+      <div class="chrome-body">
+        <iframe id="desk" class="desk" src="/promo/desk.html" title="Work desk"></iframe>
+        <aside class="sidepanel" id="sidepanel">
+          <div class="sidepanel-chrome">
+            <img src="/brand/mira-mark.svg" width="16" height="16" alt="" />
+            <strong>Mira</strong>
+            <span class="sidepanel-close" aria-hidden>×</span>
+          </div>
+          <iframe id="mira" class="mira" src="/ext/learn?promo=1" title="Mira side panel"></iframe>
+        </aside>
+      </div>
+    </div>
+
+    <div class="caption" id="caption" hidden></div>
+    <div class="endcard" id="endcard" hidden>
+      <img src="/brand/mira-mark.svg" width="64" height="64" alt="" />
+      <h1>Mira</h1>
+      <p>Your team learns from its best people.</p>
+    </div>
+
+    <script src="/promo/theater.js"></script>
+  </body>
+</html>

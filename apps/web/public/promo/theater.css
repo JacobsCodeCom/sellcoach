@@ -1,0 +1,236 @@
+:root {
+  --chrome-bg: #dee1e6;
+  --chrome-bar: #f1f3f4;
+  --ink: #141414;
+  --muted: #5f6368;
+  --accent: #e85d04;
+  --panel: #ffffff;
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0b0b0c;
+  color: var(--ink);
+}
+
+.chrome {
+  width: 1280px;
+  height: 800px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--chrome-bg);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 40px 100px rgba(0, 0, 0, 0.45);
+  transform-origin: top center;
+}
+
+.chrome-titlebar {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  padding: 0.55rem 0.75rem 0;
+  background: var(--chrome-bg);
+}
+
+.traffic {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0 0.35rem 0.55rem;
+}
+
+.traffic span {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #ff5f57;
+}
+.traffic span:nth-child(2) { background: #febc2e; }
+.traffic span:nth-child(3) { background: #28c840; }
+
+.tabs {
+  display: flex;
+  gap: 0.35rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 14rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 10px 10px 0 0;
+  background: var(--chrome-bar);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.tab.ghost {
+  background: transparent;
+  color: var(--muted);
+}
+
+.tab-favicon {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: var(--accent);
+  object-fit: cover;
+  display: block;
+}
+
+img.tab-favicon {
+  background: transparent;
+}
+
+.chrome-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.45rem 0.75rem;
+  background: var(--chrome-bar);
+  border-bottom: 1px solid rgba(20, 20, 20, 0.08);
+}
+
+.nav-btns {
+  display: flex;
+  gap: 0.55rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.omnibox {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid rgba(20, 20, 20, 0.08);
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.omnibox .lock { font-size: 0.7rem; }
+
+.ext-pin {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  border: 1px solid rgba(20, 20, 20, 0.08);
+  box-shadow: 0 0 0 3px rgba(232, 93, 4, 0.12);
+}
+
+.chrome-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  min-height: 0;
+  background: #fff;
+}
+
+.desk,
+.mira {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.sidepanel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-left: 1px solid rgba(20, 20, 20, 0.12);
+  background: #fff;
+}
+
+.sidepanel-chrome {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.7rem;
+  border-bottom: 1px solid rgba(20, 20, 20, 0.08);
+  background: #fafbfc;
+  font-size: 0.8rem;
+}
+
+.sidepanel-chrome strong {
+  letter-spacing: -0.02em;
+}
+
+.sidepanel-close {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.mira { flex: 1; }
+
+.caption {
+  position: fixed;
+  left: 50%;
+  bottom: 1.75rem;
+  transform: translateX(-50%);
+  z-index: 20;
+  max-width: 36rem;
+  padding: 0.7rem 1.1rem;
+  border-radius: 999px;
+  background: rgba(20, 20, 20, 0.88);
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+.endcard[hidden],
+.caption[hidden] {
+  display: none !important;
+}
+
+.endcard {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 0.65rem;
+  background: radial-gradient(circle at 30% 20%, #2a211c, #0b0b0c 55%);
+  color: #fff;
+  text-align: center;
+  pointer-events: none;
+}
+
+.endcard h1 {
+  margin: 0.2rem 0 0;
+  font-size: 3.4rem;
+  letter-spacing: -0.05em;
+}
+
+.endcard p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 1.15rem;
+}
+
+.endcard img {
+  border-radius: 1rem;
+}

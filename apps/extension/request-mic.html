@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Mira · Allow microphone</title>
+    <style>
+      body {
+        font-family: Georgia, "Iowan Old Style", serif;
+        max-width: 28rem;
+        margin: 3rem auto;
+        padding: 0 1.25rem;
+        color: #1c1b18;
+        background: #f3f1ea;
+      }
+      h1 { font-size: 1.6rem; margin: 0 0 0.5rem; }
+      p { color: #5c584f; line-height: 1.45; }
+      button {
+        font: inherit;
+        margin-top: 0.75rem;
+        padding: 0.65rem 1rem;
+        border: 0;
+        border-radius: 6px;
+        background: #c45c26;
+        color: #fff;
+        cursor: pointer;
+      }
+      .ok { color: #1f6b3a; font-weight: 600; }
+      .err { color: #9a3412; }
+    </style>
+  </head>
+  <body>
+    <h1>Allow microphone</h1>
+    <p>One-time setup. After this, Start in the Mira side panel records with a single click — no extra prompts.</p>
+    <p id="status">Waiting for permission…</p>
+    <button id="allow" type="button">Allow microphone</button>
+    <script src="request-mic.js"></script>
+  </body>
+</html>

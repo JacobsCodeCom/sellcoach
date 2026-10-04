@@ -1,3 +1,4 @@
+import { askJson } from "@/lib/llm";
 import { localTutorReply, type TutorRequest } from "@/lib/tutor";
 
 export const runtime = "nodejs";
@@ -28,79 +29,21 @@ export async function POST(request: Request) {
   };
   const fallback = localTutorReply(input);
 
-  const context = `Lesson:\n${JSON.stringify(input.lesson, null, 2)}\nLearner: ${input.learnerName}\nTaught by: ${input.expertName ?? "a senior colleague"}`;
-  const turns = input.messages.length
-    ? input.messages.map((m) => ({ role: m.role, content: m.content }))
-    : [{ role: "user" as const, content: "Start the lesson." }];
+  const context = `Lesson:\n${JSON.stringify(input.lesson)}\nLearner: ${input.learnerName}\nTaught by: ${input.expertName ?? "a senior colleague"}`;
+  const history = input.messages.length
+    ? input.messages.map((m) => `${m.role}: ${m.content}`).join("\n")
+    : "user: Start the lesson.";
 
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  if (anthropicKey) {
-    try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "x-api-key": anthropicKey,
-          "anthropic-version": "2023-06-01",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5",
-          max_tokens: 400,
-          temperature: 0.3,
-          system: `${SYSTEM}\n\n${context}`,
-          messages: turns[0]?.role === "user" ? turns : [{ role: "user", content: "Continue." }, ...turns],
-        }),
-      });
-      if (response.ok) {
-        const payload = (await response.json()) as { content?: { type?: string; text?: string }[] };
-        const raw = (payload.content || [])
-          .filter((b) => b.type === "text")
-          .map((b) => b.text)
-          .join("\n");
-        const parsed = parseTutorJson(raw);
-        if (parsed) return Response.json(parsed);
-      }
-    } catch {
-      /* fall through */
-    }
+  const out = (await askJson({
+    system: SYSTEM,
+    user: `${context}\n\nConversation:\n${history}`,
+    maxTokens: 280,
+    timeoutMs: 12_000,
+    priority: "latency",
+  })) as { message?: string; passed?: boolean } | null;
+
+  if (out?.message) {
+    return Response.json({ message: String(out.message), passed: out.passed === true });
   }
-
-  const openaiKey = process.env.OPENAI_API_KEY;
-  if (openaiKey) {
-    try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-          temperature: 0.3,
-          response_format: { type: "json_object" },
-          messages: [{ role: "system", content: `${SYSTEM}\n\n${context}` }, ...turns],
-        }),
-      });
-      if (response.ok) {
-        const payload = (await response.json()) as {
-          choices?: { message?: { content?: string } }[];
-        };
-        const parsed = parseTutorJson(payload.choices?.[0]?.message?.content || "");
-        if (parsed) return Response.json(parsed);
-      }
-    } catch {
-      /* fall through */
-    }
-  }
-
   return Response.json(fallback);
-}
-
-function parseTutorJson(raw: string) {
-  const unfenced = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-  if (!unfenced) return null;
-  try {
-    const parsed = JSON.parse(unfenced) as { message?: string; passed?: boolean };
-    if (!parsed.message) return null;
-    return { message: String(parsed.message), passed: parsed.passed === true };
-  } catch {
-    return null;
-  }
 }

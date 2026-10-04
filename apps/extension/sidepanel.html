@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mira</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <div id="boot" class="boot">
+      <p class="brand">Mira</p>
+      <p id="bootStatus" class="muted">Opening Mira…</p>
+      <div id="originControls" class="origin-controls" hidden>
+        <label class="origin-field">
+          <span>Mira URL (local only)</span>
+          <input id="origin" type="url" spellcheck="false" />
+        </label>
+        <button id="reload" type="button">Open</button>
+      </div>
+      <p id="error" class="error" hidden></p>
+    </div>
+    <iframe
+      id="frame"
+      title="Mira"
+      allow="camera; microphone; display-capture; autoplay; clipboard-read; clipboard-write"
+      hidden
+    ></iframe>
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

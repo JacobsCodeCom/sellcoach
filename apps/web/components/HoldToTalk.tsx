@@ -41,11 +41,12 @@ export function HoldToTalk({
     }
 
     function onKeyDown(e: KeyboardEvent) {
-      if (disabledRef.current) return;
       if (e.code !== "Space" && e.key !== " ") return;
-      if (e.repeat) return;
       if (isTypingTarget(e.target)) return;
+      // Always block Space-as-page-down, including key-repeat while held and
+      // while the mic is disabled (agent speaking) — otherwise the page jumps.
       e.preventDefault();
+      if (disabledRef.current || e.repeat) return;
       onArmedChangeRef.current(true);
     }
 
@@ -87,6 +88,8 @@ export function HoldToTalk({
         onPointerDown={(e) => {
           if (disabled) return;
           e.preventDefault();
+          // Avoid browser scrolling the page to this control when it takes focus.
+          btnRef.current?.focus({ preventScroll: true });
           btnRef.current?.setPointerCapture(e.pointerId);
           onArmedChange(true);
         }}
@@ -100,6 +103,13 @@ export function HoldToTalk({
         }}
         onPointerCancel={() => onArmedChange(false)}
         onContextMenu={(e) => e.preventDefault()}
+        onKeyDown={(e) => {
+          // Space is handled globally for push-to-talk. Enter must not activate
+          // this button (browsers scroll the focused control into view).
+          if (e.key === "Enter" || e.key === " " || e.code === "Space") {
+            e.preventDefault();
+          }
+        }}
       >
         <span className="hold-talk-dot" aria-hidden />
         <span className="hold-talk-label">{armed ? "Listening…" : "Hold to talk"}</span>
@@ -108,8 +118,8 @@ export function HoldToTalk({
         {disabled
           ? "Wait for Mira to finish"
           : <>
-              Hold the button or <kbd>{shortcutLabel}</kbd> — release when you&apos;re done
-              (we keep the last words)
+              Hold the button or <kbd>{shortcutLabel}</kbd> — pauses are fine; we send only when
+              you release
             </>}
       </p>
     </div>

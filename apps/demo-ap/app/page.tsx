@@ -1,5 +1,5 @@
-import { RelayApp } from "@/components/RelayApp";
+import { MeridianApp } from "@/components/MeridianApp";
 
 export default function Page() {
-  return <RelayApp />;
+  return <MeridianApp />;
 }

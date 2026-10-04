@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Mira">
+  <rect width="512" height="512" rx="112" fill="#141414"/>
+  <path
+    fill="#ffffff"
+    d="M118 378 V134 h58 l80 168 80-168 h58 v244 h-52 V230 l-70 148 h-32 l-70-148 v148 h-52z"
+  />
+  <rect x="230" y="356" width="52" height="52" rx="10" fill="#e85d04"/>
+</svg>

@@ -1,52 +1,45 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppNav } from "@/components/AppNav";
-import { CaptureRecorder } from "@/components/CaptureRecorder";
-import { LearnerHome } from "@/components/LearnerHome";
-import { LessonPlayer } from "@/components/LessonPlayer";
-import { LiveCaptureController, type LiveCaptureResult } from "@/lib/liveCapture";
+import { WorkMapLesson } from "@/components/learn/WorkMapLesson";
 import {
-  addTeachBackToCapture,
-  appendCaptureEvents,
+  assigneesForCapture,
   canCaptureAs,
-  discardCapture,
-  finalizeCapture,
+  deletePublishedCapture,
   getRoadmapForMembership,
-  ingestTranscriptAsTeachBacks,
   isOnboardingComplete,
-  markLessonProgress,
-  removeTeachBackFromCapture,
-  startCapture,
-  updateTeachBackInCapture,
+  reopenCaptureForEdit,
+  tasksForMembership,
+  updateCaptureTaskStatus,
 } from "@/lib/repo";
 import { useSession, useStore } from "@/lib/store";
-
-type CapturePhase = "idle" | "live" | "review";
 
 export default function WorkspacePage() {
   const router = useRouter();
   const { setStore } = useStore();
   const { ready, user, company, membership, store } = useSession();
+  const [reviewCaptureId, setReviewCaptureId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeCaptureId, setActiveCaptureId] = useState<string | null>(null);
-  const [phase, setPhase] = useState<CapturePhase>("idle");
-  const [teachAnswer, setTeachAnswer] = useState("");
-  const [recordingNote, setRecordingNote] = useState<string | null>(null);
-  const [activeLessonId, setActiveLessonId] = useState<string | null>(null);
-  const [recorder, setRecorder] = useState<LiveCaptureController | null>(null);
-  const recorderRef = useRef<LiveCaptureController | null>(null);
-  recorderRef.current = recorder;
-
-  useEffect(() => () => void recorderRef.current?.stop(), []);
 
   useEffect(() => {
     if (!ready) return;
-    if (!user) router.replace("/login");
-    else if (!company) router.replace("/onboarding");
-    else if (!isOnboardingComplete(company) && membership?.platformRole === "owner") {
+    if (!user) {
+      router.replace("/");
+      return;
+    }
+    if (!company) {
       router.replace("/onboarding");
+      return;
+    }
+    if (!isOnboardingComplete(company) && membership?.platformRole === "owner") {
+      router.replace("/onboarding");
+      return;
+    }
+    if (membership?.newHire) {
+      router.replace("/learn");
     }
   }, [ready, user, company, membership, router]);
 
@@ -59,175 +52,91 @@ export default function WorkspacePage() {
     () => (membership ? getRoadmapForMembership(store, membership.id) : null),
     [store, membership],
   );
+  const planCount = roadmap?.items.length ?? 0;
 
-  const lessonsById = useMemo(() => {
-    const map = new Map(store.lessons.map((l) => [l.id, l]));
-    return map;
-  }, [store.lessons]);
-
-  const openCapture = useMemo(() => {
-    if (activeCaptureId) {
-      return store.captures.find((c) => c.id === activeCaptureId) ?? null;
-    }
-    return null;
-  }, [store.captures, activeCaptureId]);
-
-  const canCapture = canCaptureAs(membership, workRole);
-
-  function beginCapture() {
-    setError(null);
-    setRecordingNote(null);
-    let captureId: string;
-    try {
-      let next = startCapture();
-      const latest = next.captures.filter((c) => c.memberId === membership?.id).at(-1);
-      if (!latest) throw new Error("Capture session missing");
-      captureId = latest.id;
-      next = appendCaptureEvents(captureId, [
-        {
-          kind: "session",
-          label: "Record session started",
-          detail: "Requesting screen + microphone",
-        },
-      ]);
-      setStore(next);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not start capture");
-      return;
-    }
-
-    // Started inside the click handler so the browser shows exactly one share picker.
-    const controller = new LiveCaptureController();
-    controller.start().catch((err) => {
-      setError(err instanceof Error ? err.message : "Could not start screen/mic capture");
-      try {
-        setStore(discardCapture(captureId));
-      } catch {
-        /* ignore */
-      }
-      setRecorder(null);
-      setActiveCaptureId(null);
-      setPhase("idle");
-    });
-    setRecorder(controller);
-    setActiveCaptureId(captureId);
-    setPhase("live");
-  }
-
-  const onLiveLines = useCallback(
-    (lines: string[]) => {
-      if (!openCapture) return;
-      const known = new Set(
-        openCapture.events.filter((e) => e.kind === "speech").map((e) => e.label),
-      );
-      const fresh = lines.filter((line) => !known.has(line));
-      if (!fresh.length) return;
-      setStore(
-        appendCaptureEvents(
-          openCapture.id,
-          fresh.map((line) => ({ kind: "speech", label: line })),
-        ),
-      );
-    },
-    [openCapture, setStore],
+  const myMaps = useMemo(
+    () =>
+      store.captures
+        .filter((c) => c.memberId === membership?.id && (c.workMap || c.publishedAt))
+        .sort((a, b) => b.startedAt - a.startedAt),
+    [store.captures, membership?.id],
   );
 
-  function onRecordingStopped(payload: LiveCaptureResult) {
-    setRecorder(null);
-    if (!openCapture) return;
-    setError(null);
-    try {
-      let next = ingestTranscriptAsTeachBacks(openCapture.id, payload.lines);
-      next = appendCaptureEvents(openCapture.id, [
-        {
-          kind: "recording",
-          label: "Session ended",
-          detail: payload.blob
-            ? `Local preview ${Math.round(payload.blob.size / 1024)} KB (not uploaded)`
-            : "No media blob retained",
-        },
-      ]);
-      setStore(next);
-      const count = next.captures.find((c) => c.id === openCapture.id)?.teachBacks.length ?? 0;
-      setRecordingNote(
-        count
-          ? `${count} rule card(s) from your voice. Edit if needed, then publish.`
-          : "No clear spoken rules. Add one manually below, then publish.",
-      );
-      setPhase("review");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save recording");
-    }
-  }
+  const draftMaps = myMaps.filter((c) => !c.publishedAt);
+  const publishedMaps = myMaps.filter((c) => c.publishedAt);
 
-  function onTeachBack(e: FormEvent) {
-    e.preventDefault();
-    if (!openCapture) return;
-    setError(null);
-    try {
-      setStore(
-        addTeachBackToCapture(openCapture.id, {
-          prompt: "What rule should a new hire learn from this?",
-          answer: teachAnswer,
-          confirmed: true,
-        }),
-      );
-      setTeachAnswer("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save rule");
-    }
-  }
+  const myTasks = useMemo(
+    () => (membership ? tasksForMembership(store, membership.id) : []),
+    [store, membership],
+  );
+  const openTasks = myTasks.filter((t) => t.status === "todo" || t.status === "in_progress");
 
-  function onPublish() {
-    if (!openCapture) return;
-    setError(null);
-    try {
-      setStore(finalizeCapture(openCapture.id));
-      setActiveCaptureId(null);
-      setRecordingNote(null);
-      setPhase("idle");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not publish lesson");
-    }
-  }
+  const reviewCapture = reviewCaptureId
+    ? publishedMaps.find((c) => c.id === reviewCaptureId) ?? null
+    : null;
 
-  function onDiscard() {
-    if (!openCapture) return;
-    setError(null);
-    try {
-      setStore(discardCapture(openCapture.id));
-      setActiveCaptureId(null);
-      setRecordingNote(null);
-      setPhase("idle");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not discard session");
-    }
-  }
-
-  if (!ready || !user || !company || !membership) {
-    return (
-      <main className="shell">
-        <AppNav />
-        <p className="muted">Loading…</p>
-      </main>
-    );
-  }
-
-  if (membership.newHire) {
+  if (!ready || !user || !company || !membership || membership.newHire) {
     return (
       <main>
         <AppNav />
         <section className="shell">
-          <LearnerHome store={store} user={user} membership={membership} workRole={workRole} />
+          <p className="muted">Loading…</p>
         </section>
       </main>
     );
   }
 
+  const canCapture = canCaptureAs(membership, workRole);
+
+  if (reviewCapture?.workMap) {
+    return (
+      <main>
+        <AppNav />
+        <section className="shell">
+          <WorkMapLesson
+            map={reviewCapture.workMap}
+            moments={reviewCapture.moments ?? []}
+            expertName={user.name}
+            learnerName={user.name}
+            preview
+            onFinished={() => setReviewCaptureId(null)}
+            onExit={() => setReviewCaptureId(null)}
+          />
+        </section>
+      </main>
+    );
+  }
+
+  function onEdit(captureId: string) {
+    setError(null);
+    try {
+      setStore(reopenCaptureForEdit(captureId));
+      router.push(`/capture?id=${captureId}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not open for edit");
+    }
+  }
+
+  function onDelete(captureId: string, title: string) {
+    setError(null);
+    if (
+      !window.confirm(
+        `Delete “${title}”? It will leave everyone’s roadmap and any agent abilities that used it.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      setStore(deletePublishedCapture(captureId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete");
+    }
+  }
+
   return (
     <main>
       <AppNav />
-      <section className="shell" style={{ paddingBottom: "4rem" }}>
+      <section className="shell workspace-page">
         <div className="page-head">
           <div>
             <p className="tag">
@@ -244,182 +153,152 @@ export default function WorkspacePage() {
           <div className="panel">
             <p className="muted">
               No work role assigned yet. Ask your company owner to set your title, seniority, and
-              competence in Admin.
+              competence on Team.
             </p>
           </div>
         ) : (
-          <div className="grid-2">
-            <div className="panel stack">
-              <h3>Your roadmap</h3>
-              <p className="muted panel-intro">
-                Lessons from more senior / higher-competence people with the same title.
+          <div className="workspace-stack">
+            {planCount ? (
+              <p className="workspace-learn-link">
+                <Link href="/learn">Your learning plan</Link>
+                <span className="muted">
+                  {" "}
+                  · {planCount} lesson{planCount === 1 ? "" : "s"}
+                </span>
               </p>
-              {!roadmap?.items.length ? (
-                <p className="muted">No lessons attached yet. Capture from experts will fill this.</p>
-              ) : (
-                roadmap.items.map((item) => {
-                  const lesson = lessonsById.get(item.lessonId);
-                  const playing =
-                    activeLessonId === item.lessonId &&
-                    (item.status === "available" || item.status === "in_progress");
-                  return (
-                    <div className="lesson-card" data-status={item.status} key={item.lessonId}>
-                      <strong>
-                        {item.order + 1}. {lesson?.title ?? "Lesson"}
-                      </strong>
-                      <span className="muted">{lesson?.summary}</span>
-                      <span className="tag">{item.status}</span>
-                      {item.status === "available" || item.status === "in_progress" ? (
-                        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                          {!playing ? (
-                            <button
-                              className="btn btn-primary"
-                              type="button"
-                              onClick={() => {
-                                if (item.status === "available") {
-                                  setStore(
-                                    markLessonProgress(membership.id, item.lessonId, "in_progress"),
-                                  );
-                                }
-                                setActiveLessonId(item.lessonId);
-                              }}
-                            >
-                              {item.status === "available" ? "Start lesson" : "Continue"}
-                            </button>
-                          ) : (
-                            <button
-                              className="btn"
-                              type="button"
-                              onClick={() => setActiveLessonId(null)}
-                            >
-                              Collapse
-                            </button>
-                          )}
-                        </div>
-                      ) : null}
-                      {playing && lesson ? (
-                        <LessonPlayer
-                          lesson={lesson}
-                          onPass={() => {
-                            setStore(markLessonProgress(membership.id, item.lessonId, "done"));
-                            setActiveLessonId(null);
-                          }}
-                        />
-                      ) : null}
-                    </div>
-                  );
-                })
-              )}
-            </div>
+            ) : null}
 
-            <div className="panel stack">
-              <h3>Expert capture</h3>
-              <p className="muted panel-intro">
-                Record screen + voice while you work. Review the rules, then publish a lesson.
-              </p>
-              {!canCapture ? (
-                <p className="muted">
-                  Capture unlocks at mid/expert competence or seniority 3+. Your role:{" "}
-                  {workRole.competence}, L{workRole.seniority}.
+            {canCapture ? (
+              <div className="panel stack workspace-record">
+                <h3>Record a Work Map</h3>
+                <p className="muted panel-intro">
+                  Share your screen in the browser, walk through the work, then debrief and publish
+                  so teammates can learn from it.
                 </p>
-              ) : phase === "idle" || !openCapture ? (
-                <button className="btn btn-primary" type="button" onClick={beginCapture}>
-                  Record session
-                </button>
-              ) : phase === "live" && recorder ? (
-                <CaptureRecorder
-                  controller={recorder}
-                  onLiveLines={onLiveLines}
-                  onStopped={onRecordingStopped}
-                />
-              ) : (
-                <div className="review">
-                  <div className="review-head">
-                    <h4>Review rules</h4>
-                    <span>
-                      {openCapture.teachBacks.length}{" "}
-                      {openCapture.teachBacks.length === 1 ? "rule" : "rules"}
-                    </span>
-                  </div>
-                  <p className="review-note">
-                    {recordingNote ?? "Click a rule to edit it."}
-                  </p>
-
-                  {openCapture.teachBacks.length ? (
-                    <ul className="review-rules">
-                      {openCapture.teachBacks.map((tb) => (
-                        <li className="rule-card" key={tb.id}>
-                          <input
-                            value={tb.ruleLabel || ""}
-                            placeholder="Rule title"
-                            onChange={(e) =>
-                              setStore(
-                                updateTeachBackInCapture(openCapture.id, tb.id, {
-                                  ruleLabel: e.target.value,
-                                }),
-                              )
-                            }
-                            aria-label="Rule title"
-                          />
-                          <textarea
-                            rows={2}
-                            value={tb.answer}
-                            onChange={(e) =>
-                              setStore(
-                                updateTeachBackInCapture(openCapture.id, tb.id, {
-                                  answer: e.target.value,
-                                }),
-                              )
-                            }
-                            aria-label="Rule text"
-                          />
-                          <button
-                            className="rule-remove"
-                            type="button"
-                            title="Remove rule"
-                            aria-label="Remove rule"
-                            onClick={() =>
-                              setStore(removeTeachBackFromCapture(openCapture.id, tb.id))
-                            }
-                          >
-                            ×
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="rule-empty">No rules picked up from your voice. Add one below.</p>
-                  )}
-
-                  <form className="rule-add" onSubmit={onTeachBack}>
-                    <textarea
-                      rows={1}
-                      value={teachAnswer}
-                      onChange={(e) => setTeachAnswer(e.target.value)}
-                      aria-label="Add a rule manually"
-                      placeholder="Add a rule, e.g. Escalate if they mention cancelling twice."
-                    />
-                    <button className="btn btn-sm" type="submit" disabled={!teachAnswer.trim()}>
-                      Add
-                    </button>
-                  </form>
-
-                  <div className="review-actions">
-                    <button
-                      className="btn btn-primary"
-                      type="button"
-                      onClick={onPublish}
-                      disabled={!openCapture.teachBacks.length}
-                    >
-                      Publish lesson
-                    </button>
-                    <button className="btn-ghost" type="button" onClick={onDiscard}>
-                      Discard
-                    </button>
-                  </div>
+                <div className="hero-actions">
+                  <Link className="btn btn-primary" href="/capture">
+                    Start recording
+                  </Link>
+                  <Link className="btn" href="/learn">
+                    Open Learn
+                  </Link>
                 </div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <p className="muted">
+                Recording unlocks at mid/expert competence or seniority 3+. Your role:{" "}
+                {workRole.competence}, L{workRole.seniority}. Open{" "}
+                <Link href="/learn">Learn</Link> for your plan.
+              </p>
+            )}
+
+            {canCapture && openTasks.length ? (
+              <div className="panel stack">
+                <h3>Your tasks</h3>
+                <p className="muted panel-intro">
+                  Record these in the browser — teammates learn from how you actually work.
+                </p>
+                <ul className="list">
+                  {openTasks.map((task) => (
+                    <li key={task.id}>
+                      <span>
+                        <strong>{task.title}</strong>
+                        <br />
+                        <span className="muted">{task.brief}</span>
+                      </span>
+                      <div className="workspace-published-actions">
+                        <Link className="btn btn-sm btn-primary" href={`/capture?taskId=${task.id}`}>
+                          Record
+                        </Link>
+                        <button
+                          className="btn btn-sm"
+                          type="button"
+                          onClick={() => setStore(updateCaptureTaskStatus(task.id, "dismissed"))}
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {canCapture && draftMaps.length ? (
+              <div className="panel stack">
+                <h3>Unfinished</h3>
+                <p className="muted panel-intro">Finish debrief and publish from web capture.</p>
+                <ul className="list">
+                  {draftMaps.map((c) => (
+                    <li key={c.id}>
+                      <span>
+                        <strong>{c.workMap?.title ?? "Untitled session"}</strong>
+                        <br />
+                        <span className="muted">
+                          {c.workMap?.confirmed ? "Ready to publish" : "Debrief pending"}
+                        </span>
+                      </span>
+                      <Link className="btn btn-sm" href={`/capture?id=${c.id}`}>
+                        Continue
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {canCapture && publishedMaps.length ? (
+              <div className="panel stack">
+                <h3>Published</h3>
+                <ul className="list">
+                  {publishedMaps.map((c) => {
+                    const title = c.workMap?.title ?? "Untitled session";
+                    const assignees = assigneesForCapture(store, c.id);
+                    const assigneeLabel = assignees.length
+                      ? `Assigned to ${assignees.map((a) => a.name.split(/\s+/)[0] || a.name).join(", ")}`
+                      : "Not on anyone’s plan yet";
+
+                    return (
+                      <li key={c.id} className="workspace-published-row">
+                        <span>
+                          <strong>{title}</strong>
+                          <br />
+                          <span className="muted">
+                            {new Date(c.startedAt).toLocaleDateString()}
+                            {" · "}
+                            {assigneeLabel}
+                          </span>
+                        </span>
+                        <div className="workspace-published-actions">
+                          <button
+                            className="btn-text"
+                            type="button"
+                            disabled={!c.workMap}
+                            onClick={() => setReviewCaptureId(c.id)}
+                          >
+                            Review
+                          </button>
+                          <button
+                            className="btn-text"
+                            type="button"
+                            onClick={() => onEdit(c.id)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="btn-text workspace-delete"
+                            type="button"
+                            onClick={() => onDelete(c.id, title)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : null}
           </div>
         )}
       </section>

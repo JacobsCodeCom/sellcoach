@@ -1,4 +1,5 @@
 import { createId } from "./id";
+import { estimateWorkMapMinutes, RULE_LESSON_MINUTES } from "./learnerPlan";
 import { ruleLabelFromAnswer } from "./transcript";
 import type { CaptureSession, Lesson } from "./types";
 
@@ -45,8 +46,38 @@ export function compileLessonsFromCapture(session: CaptureSession, now = Date.no
       orderHint: step?.order ?? index,
       status: "active" as const,
       createdAt: now,
+      kind: "rule" as const,
+      estimateMinutes: RULE_LESSON_MINUTES,
     };
   });
+}
+
+/** One lesson for a whole confirmed Work Map: the learner walks the steps, then practises its guardrails. */
+export function compileLessonFromWorkMap(session: CaptureSession, now = Date.now()): Lesson | null {
+  const map = session.workMap;
+  if (!map || !map.steps.length) return null;
+  const judgment = map.steps.filter((s) => s.isJudgmentCall).length;
+  const parts = [
+    `${map.steps.length} ${map.steps.length === 1 ? "step" : "steps"}`,
+    judgment ? `${judgment} judgment ${judgment === 1 ? "call" : "calls"}` : "",
+    map.guardrails.length ? `${map.guardrails.length} ${map.guardrails.length === 1 ? "rule" : "rules"}` : "",
+  ].filter(Boolean);
+  return {
+    id: createId("les"),
+    companyId: session.companyId,
+    sourceCaptureId: session.id,
+    sourceMemberId: session.memberId,
+    sourceWorkRoleId: session.workRoleId,
+    title: map.title,
+    summary: parts.join(" · "),
+    prompt: `Walk through ${map.title}, then handle cases you haven't seen.`,
+    passCriteria: map.guardrails.map((g) => g.rule).join(" ") || map.steps.map((s) => s.title).join(", "),
+    orderHint: session.startedAt,
+    status: "active",
+    createdAt: now,
+    kind: "workmap",
+    estimateMinutes: estimateWorkMapMinutes(map.steps.length, judgment),
+  };
 }
 
 /** Merge new lessons into a company pool, replacing prior lessons from the same capture. */

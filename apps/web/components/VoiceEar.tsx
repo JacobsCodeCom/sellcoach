@@ -18,12 +18,34 @@ type Props = {
   onMode?: (mode: "scribe" | "browser" | "off") => void;
 };
 
-const FLUSH_MS = 1600;
-const PARTIAL_FALLBACK_MS = 400;
+/** How long after release we still accept trailing commits/partials. */
+const FLUSH_MS = 1400;
+/** Debounce after the last transcript update before sending on release. */
+const SETTLE_MS = 220;
+/** Hard deadline after release — send whatever we have. */
+const MAX_WAIT_MS = 1100;
+
+/** Bias Scribe toward product / workplace vocabulary (max 50, ≤20 chars each). */
+const KEYTERMS = [
+  "Mira",
+  "SellCoach",
+  "apprentice",
+  "work map",
+  "Notion",
+  "Salesforce",
+  "HubSpot",
+  "CRM",
+  "onboarding",
+  "debrief",
+  "lesson",
+  "screen share",
+  "playbook",
+];
 
 /**
- * ElevenLabs Scribe (en) with push-to-talk.
- * On release we commit + keep a short grace window so the last words aren't dropped.
+ * ElevenLabs Scribe v2 realtime (en) with push-to-talk.
+ * There is no Scribe "v4" — v4 is TTS only (`eleven_v4_turbo`).
+ * While holding, speech is buffered; release commits and waits for a stable final.
  */
 export function VoiceEar({
   active,
@@ -44,15 +66,39 @@ export function VoiceEar({
 
   const browserRef = useRef<VoiceListenController | null>(null);
   const modeRef = useRef<"scribe" | "browser" | "off">("off");
+  /** Committed segments accumulated while holding (VAD may fire mid-hold). */
+  const heldSegmentsRef = useRef<string[]>([]);
+  /** Live partial for the current unfinished segment. */
   const latestPartialRef = useRef("");
   const flushUntilRef = useRef(0);
   const sentRef = useRef(false);
   const wasArmedRef = useRef(false);
-  const flushTimerRef = useRef<number | null>(null);
+  const settleTimerRef = useRef<number | null>(null);
+  const hardTimerRef = useRef<number | null>(null);
+  /** Ignore commits that flush idle audio when the button is first pressed. */
+  const ignoreCommitUntilRef = useRef(0);
 
-  function isAccepting() {
+  function clearTimers() {
+    if (settleTimerRef.current != null) {
+      window.clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = null;
+    }
+    if (hardTimerRef.current != null) {
+      window.clearTimeout(hardTimerRef.current);
+      hardTimerRef.current = null;
+    }
+  }
+
+  function isCapturing() {
     if (pausedRef.current) return false;
     return armedRef.current || Date.now() < flushUntilRef.current;
+  }
+
+  function previewText() {
+    const parts = [...heldSegmentsRef.current];
+    const partial = latestPartialRef.current.trim();
+    if (partial) parts.push(partial);
+    return parts.join(" ").replace(/\s+/g, " ").trim();
   }
 
   function emitFinal(text: string): boolean {
@@ -61,43 +107,66 @@ export function VoiceEar({
     if (!isPlausibleUserUtterance(cleaned)) return false;
     sentRef.current = true;
     flushUntilRef.current = 0;
+    heldSegmentsRef.current = [];
     latestPartialRef.current = "";
-    if (flushTimerRef.current != null) {
-      window.clearTimeout(flushTimerRef.current);
-      flushTimerRef.current = null;
-    }
+    clearTimers();
     handlersRef.current.onPartial("");
     handlersRef.current.onFinal(cleaned);
     return true;
   }
 
-  function acceptText(text: string, kind: "partial" | "final") {
+  /** Try to send after release once the transcript looks settled. */
+  function scheduleFlushSend() {
+    if (sentRef.current || pausedRef.current || armedRef.current) return;
+    if (settleTimerRef.current != null) window.clearTimeout(settleTimerRef.current);
+    settleTimerRef.current = window.setTimeout(() => {
+      settleTimerRef.current = null;
+      if (sentRef.current || pausedRef.current || armedRef.current) return;
+      const pending = previewText();
+      if (!pending) return; // keep waiting until hard deadline
+      emitFinal(pending);
+    }, SETTLE_MS);
+  }
+
+  function acceptText(text: string, kind: "partial" | "segment") {
     const cleaned = text.replace(/\s+/g, " ").trim();
-    if (!isAccepting()) {
-      return;
-    }
+    if (!cleaned) return;
+    if (!isCapturing()) return;
+    if (kind === "segment" && Date.now() < ignoreCommitUntilRef.current) return;
+
     if (kind === "partial") {
       latestPartialRef.current = cleaned;
-      handlersRef.current.onPartial(cleaned);
+      handlersRef.current.onPartial(previewText());
+      if (!armedRef.current && flushUntilRef.current > Date.now()) scheduleFlushSend();
       return;
     }
-    emitFinal(cleaned || latestPartialRef.current);
+
+    // Segment commit from VAD / browser final — buffer only; do not send yet.
+    heldSegmentsRef.current = [...heldSegmentsRef.current, cleaned];
+    latestPartialRef.current = "";
+    handlersRef.current.onPartial(previewText());
+    if (!armedRef.current && flushUntilRef.current > Date.now()) scheduleFlushSend();
   }
 
   const scribe = useScribe({
     modelId: "scribe_v2_realtime",
     languageCode: "en",
+    // VAD still segments audio for the model, but we only send on button release.
     commitStrategy: CommitStrategy.VAD,
     filterBackgroundAudio: true,
-    vadThreshold: 0.7,
+    // Docs default ~0.4; 0.7 was dropping quiet / accented speech. With
+    // filterBackgroundAudio, omit a high override so the server stays sensitive.
+    vadThreshold: 0.4,
     vadSilenceThresholdSecs: 0.8,
-    minSpeechDurationMs: 200,
-    minSilenceDurationMs: 300,
+    minSpeechDurationMs: 100,
+    minSilenceDurationMs: 200,
+    noVerbatim: true,
+    keyterms: KEYTERMS,
     onPartialTranscript: (data) => {
       acceptText(data.text, "partial");
     },
     onCommittedTranscript: (data) => {
-      acceptText(data.text, "final");
+      acceptText(data.text, "segment");
     },
     onError: () => {
       if (modeRef.current === "scribe") {
@@ -119,7 +188,8 @@ export function VoiceEar({
     browserRef.current?.stop();
     const listen = new VoiceListenController({
       onPartial: (text) => acceptText(text, "partial"),
-      onFinal: (text) => acceptText(text, "final"),
+      // Browser "finals" are also buffered until release.
+      onFinal: (text) => acceptText(text, "segment"),
       onListeningChange: (v) => handlersRef.current.onListeningChange(v),
       onError: (message) => handlersRef.current.onError?.(message),
     });
@@ -143,8 +213,10 @@ export function VoiceEar({
       browserRef.current?.stop();
       browserRef.current = null;
       modeRef.current = "off";
+      heldSegmentsRef.current = [];
       latestPartialRef.current = "";
       flushUntilRef.current = 0;
+      clearTimers();
       handlersRef.current.onListeningChange(false);
       handlersRef.current.onPartial("");
       return;
@@ -169,7 +241,9 @@ export function VoiceEar({
           token: payload.token,
           languageCode: "en",
           filterBackgroundAudio: true,
-          vadThreshold: 0.7,
+          vadThreshold: 0.4,
+          noVerbatim: true,
+          keyterms: KEYTERMS,
           microphone: {
             echoCancellation: true,
             noiseSuppression: true,
@@ -190,10 +264,7 @@ export function VoiceEar({
 
     return () => {
       cancelled = true;
-      if (flushTimerRef.current != null) {
-        window.clearTimeout(flushTimerRef.current);
-        flushTimerRef.current = null;
-      }
+      clearTimers();
       try {
         scribeRef.current.disconnect();
       } catch {
@@ -205,18 +276,26 @@ export function VoiceEar({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- boot once per active toggle
   }, [active]);
 
-  // Press / release handling: release flushes instead of dropping the line.
+  // Press / release: only release sends the utterance.
   useEffect(() => {
     const wasArmed = wasArmedRef.current;
     wasArmedRef.current = armed;
 
     if (armed && !wasArmed) {
       sentRef.current = false;
+      heldSegmentsRef.current = [];
       latestPartialRef.current = "";
       flushUntilRef.current = 0;
-      if (flushTimerRef.current != null) {
-        window.clearTimeout(flushTimerRef.current);
-        flushTimerRef.current = null;
+      clearTimers();
+      handlersRef.current.onPartial("");
+      // Drop idle audio that accumulated while the button wasn't held so it
+      // doesn't leak into this utterance. Ignore the resulting commit briefly.
+      ignoreCommitUntilRef.current = Date.now() + 350;
+      try {
+        scribeRef.current.commit();
+        scribeRef.current.clearTranscripts();
+      } catch {
+        /* browser fallback */
       }
       return;
     }
@@ -229,23 +308,28 @@ export function VoiceEar({
         /* browser fallback has no commit */
       }
 
-      if (flushTimerRef.current != null) {
-        window.clearTimeout(flushTimerRef.current);
-      }
-      flushTimerRef.current = window.setTimeout(() => {
-        flushTimerRef.current = null;
-        if (sentRef.current || pausedRef.current) return;
-        const pending = latestPartialRef.current.trim();
-        if (pending) emitFinal(pending);
-        flushUntilRef.current = 0;
-      }, PARTIAL_FALLBACK_MS);
+      // Do not soft-send immediately — wait for post-release partials/commits so
+      // trailing words aren't cut. Hard deadline always flushes what we have.
+      if (hardTimerRef.current != null) window.clearTimeout(hardTimerRef.current);
+      hardTimerRef.current = window.setTimeout(() => {
+        hardTimerRef.current = null;
+        if (sentRef.current || pausedRef.current || armedRef.current) return;
+        const pending = previewText();
+        if (!pending) {
+          flushUntilRef.current = 0;
+          return;
+        }
+        if (!emitFinal(pending)) flushUntilRef.current = 0;
+      }, MAX_WAIT_MS);
     }
   }, [armed]);
 
   useEffect(() => {
     if (paused) {
       flushUntilRef.current = 0;
+      heldSegmentsRef.current = [];
       latestPartialRef.current = "";
+      clearTimers();
       handlersRef.current.onPartial("");
     }
   }, [paused]);

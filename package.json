@@ -4,6 +4,11 @@
   "scripts": {
     "dev": "pnpm --filter @mira/web dev",
     "dev:web": "pnpm --filter @mira/web dev",
+    "dev:extension": "node apps/extension/scripts/print-dev-instructions.mjs",
+    "extension:pack": "node apps/extension/scripts/pack-store.mjs",
+    "promo:record": "node scripts/promo/record.mjs",
+    "promo:assets": "node scripts/promo/store-assets.mjs",
+    "promo:ffmpeg": "tools/ffmpeg/ffmpeg",
     "dev:demo": "pnpm --filter @mira/demo dev",
     "dev:demo-ap": "pnpm --filter @mira/demo-ap dev",
     "dev:demo-support": "pnpm --filter @mira/demo-support dev",
@@ -20,5 +25,8 @@
   "engines": {
     "node": ">=20"
   },
-  "packageManager": "pnpm@9.15.0"
+  "packageManager": "pnpm@9.15.0",
+  "devDependencies": {
+    "playwright": "1.55.0"
+  }
 }

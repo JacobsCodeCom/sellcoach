@@ -248,7 +248,7 @@ export function OnboardingChat({
       if (done && !managing) {
         setPhase("done");
         setEarActive(false);
-        setTimeout(() => router.push("/getting-started"), 700);
+        setTimeout(() => router.push("/admin"), 700);
         return;
       }
     } catch (err) {
@@ -395,7 +395,7 @@ export function OnboardingChat({
       const applied = applyOnboardingActions(actions);
       setStore(applied.store);
       setPhase("done");
-      setTimeout(() => router.push("/getting-started"), 500);
+      setTimeout(() => router.push("/admin"), 500);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save setup");
     }

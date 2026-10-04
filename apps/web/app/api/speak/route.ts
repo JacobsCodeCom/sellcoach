@@ -22,7 +22,9 @@ export async function POST(request: Request) {
   const voiceId = process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM";
   const modelId = process.env.ELEVENLABS_MODEL_ID || "eleven_v4_turbo";
 
-  const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+  // Prefer the streaming endpoint so bytes start flowing sooner; still buffer once
+  // for browser Audio() playback, but ElevenLabs can start synthesis with lower latency.
+  const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`, {
     method: "POST",
     headers: {
       "xi-api-key": key,
@@ -32,6 +34,7 @@ export async function POST(request: Request) {
     body: JSON.stringify({
       text,
       model_id: modelId,
+      optimize_streaming_latency: 3,
       voice_settings: {
         stability: 0.5,
         similarity_boost: 0.75,
@@ -43,6 +46,13 @@ export async function POST(request: Request) {
     const detail = await response.text().catch(() => "");
     console.error("ElevenLabs TTS failed", response.status, detail.slice(0, 300));
     return Response.json({ error: "tts" }, { status: 502 });
+  }
+
+  // Pass the stream through when available so the client can begin buffering immediately.
+  if (response.body) {
+    return new Response(response.body, {
+      headers: { "Content-Type": "audio/mpeg", "Cache-Control": "no-store" },
+    });
   }
 
   const audio = await response.arrayBuffer();

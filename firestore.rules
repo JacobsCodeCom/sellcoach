@@ -1,0 +1,155 @@
+rules_version = '2';
+service cloud.firestore {
+  // ===============================================================
+  // Assumed Data Model (prototype — review before production)
+  // ===============================================================
+  // users/{userId}: id, email, name, createdAt
+  // companies/{companyId}: id, name, summary?, createdAt, ownerUserId, ...
+  // memberships/{membershipId}: id, userId, companyId, platformRole, workRoleId?, needsRole?, newHire?, createdAt
+  // workRoles/{workRoleId}: id, companyId, title, seniority, competence, createdAt
+  // invites/{token}: document ID == invite.token (capability URL)
+  //   id, token, companyId, email, name, workRoleId?, platformRole, newHire?, membershipId?,
+  //   createdAt, acceptedAt?, revokedAt?
+  // ===============================================================
+
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function emailLower() {
+      return signedIn() && request.auth.token.email is string
+        ? request.auth.token.email.lower()
+        : "";
+    }
+
+    function isSelf(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isCompanyOwner(companyId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/companies/$(companyId))
+        && get(/databases/$(database)/documents/companies/$(companyId)).data.ownerUserId == request.auth.uid;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'email', 'name', 'createdAt'])
+        && data.id is string
+        && data.email is string
+        && data.name is string
+        && data.createdAt is number;
+    }
+
+    function isValidCompany(data) {
+      return data.keys().hasAll(['id', 'name', 'createdAt', 'ownerUserId'])
+        && data.id is string
+        && data.name is string
+        && data.createdAt is number
+        && data.ownerUserId is string;
+    }
+
+    function isValidMembership(data) {
+      return data.keys().hasAll(['id', 'userId', 'companyId', 'platformRole', 'createdAt'])
+        && data.id is string
+        && data.userId is string
+        && data.companyId is string
+        && data.platformRole in ['owner', 'member']
+        && data.createdAt is number;
+    }
+
+    function isValidWorkRole(data) {
+      return data.keys().hasAll(['id', 'companyId', 'title', 'seniority', 'competence', 'createdAt'])
+        && data.id is string
+        && data.companyId is string
+        && data.title is string
+        && data.seniority is number
+        && data.competence in ['junior', 'mid', 'expert']
+        && data.createdAt is number;
+    }
+
+    function isValidInvite(data) {
+      return data.keys().hasAll(['id', 'token', 'companyId', 'email', 'name', 'platformRole', 'createdAt'])
+        && data.id is string
+        && data.token is string
+        && data.companyId is string
+        && data.email is string
+        && data.name is string
+        && data.platformRole in ['owner', 'member']
+        && data.createdAt is number;
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn();
+      allow create, update: if isSelf(userId)
+        && isValidUser(request.resource.data)
+        && request.resource.data.id == userId;
+      allow delete: if false;
+    }
+
+    match /companies/{companyId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && isValidCompany(request.resource.data)
+        && request.resource.data.id == companyId
+        && request.resource.data.ownerUserId == request.auth.uid;
+      allow update: if isCompanyOwner(companyId)
+        && isValidCompany(request.resource.data)
+        && request.resource.data.id == companyId
+        && request.resource.data.ownerUserId == resource.data.ownerUserId;
+      allow delete: if false;
+    }
+
+    match /memberships/{membershipId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && isValidMembership(request.resource.data)
+        && request.resource.data.id == membershipId
+        && (
+          (request.resource.data.userId == request.auth.uid
+            && request.resource.data.platformRole == 'owner')
+          || isCompanyOwner(request.resource.data.companyId)
+        );
+      allow update: if signedIn()
+        && isValidMembership(request.resource.data)
+        && request.resource.data.id == membershipId
+        && request.resource.data.companyId == resource.data.companyId
+        && (
+          isCompanyOwner(resource.data.companyId)
+          || request.resource.data.userId == request.auth.uid
+        );
+      allow delete: if isCompanyOwner(resource.data.companyId);
+    }
+
+    match /workRoles/{workRoleId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && isValidWorkRole(request.resource.data)
+        && request.resource.data.id == workRoleId
+        && isCompanyOwner(request.resource.data.companyId);
+      allow delete: if isCompanyOwner(resource.data.companyId);
+    }
+
+    // Document ID is the secret invite token (capability URL).
+    match /invites/{token} {
+      allow get: if true;
+      allow list: if signedIn() && (
+        resource.data.email == emailLower()
+        || isCompanyOwner(resource.data.companyId)
+      );
+      allow create: if signedIn()
+        && isValidInvite(request.resource.data)
+        && request.resource.data.token == token
+        && isCompanyOwner(request.resource.data.companyId);
+      allow update: if signedIn()
+        && isValidInvite(request.resource.data)
+        && request.resource.data.token == token
+        && request.resource.data.companyId == resource.data.companyId
+        && (
+          isCompanyOwner(resource.data.companyId)
+          || resource.data.email == emailLower()
+        );
+      allow delete: if isCompanyOwner(resource.data.companyId);
+    }
+  }
+}

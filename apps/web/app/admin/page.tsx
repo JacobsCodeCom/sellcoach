@@ -1,301 +1,187 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import type { Competence } from "@mira/core";
-import { AppNav } from "@/components/AppNav";
-import { OnboardingChat } from "@/components/OnboardingChat";
 import {
-  assignWorkRole,
-  createMemberAccount,
-  createWorkRole,
-  getRoadmapForMembership,
-  isOnboardingComplete,
-  removeMember,
-  setMemberNewHire,
-  signInAsMember,
-} from "@/lib/repo";
-import { useSession, useStore } from "@/lib/store";
+  buildOverviewAnalytics,
+  formatRelativeTime,
+  outcomeLabel,
+  personStatusLabel,
+} from "@/lib/adminAnalytics";
+import { isOnboardingComplete } from "@/lib/repo";
+import { useSession } from "@/lib/store";
 
-export default function AdminPage() {
+export default function AdminOverviewPage() {
   const router = useRouter();
-  const { setStore } = useStore();
   const { ready, user, company, membership, store } = useSession();
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!ready) return;
-    if (!user) router.replace("/login");
+    if (!user) router.replace("/");
     else if (!company) router.replace("/onboarding");
     else if (!isOnboardingComplete(company)) router.replace("/onboarding");
-    else if (membership?.platformRole !== "owner") router.replace("/app");
+    else if (membership?.platformRole !== "owner") {
+      router.replace(membership?.newHire ? "/learn" : "/app");
+    }
   }, [ready, user, company, membership, router]);
 
-  const roles = useMemo(
-    () => store.workRoles.filter((r) => r.companyId === company?.id),
-    [store.workRoles, company?.id],
+  const analytics = useMemo(
+    () => (company ? buildOverviewAnalytics(store, company.id) : null),
+    [store, company],
   );
-  const members = useMemo(
-    () => store.memberships.filter((m) => m.companyId === company?.id),
-    [store.memberships, company?.id],
-  );
-  const lessons = useMemo(
-    () => store.lessons.filter((l) => l.companyId === company?.id),
-    [store.lessons, company?.id],
-  );
-
-  function onCreateRole(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError(null);
-    const data = new FormData(e.currentTarget);
-    try {
-      setStore(
-        createWorkRole({
-          title: String(data.get("title") || ""),
-          seniority: Number(data.get("seniority") || 1),
-          competence: String(data.get("competence") || "junior") as Competence,
-        }),
-      );
-      e.currentTarget.reset();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create role");
-    }
-  }
-
-  function onCreateMember(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError(null);
-    const data = new FormData(e.currentTarget);
-    const workRoleId = String(data.get("workRoleId") || "");
-    try {
-      setStore(
-        createMemberAccount({
-          name: String(data.get("name") || ""),
-          email: String(data.get("email") || ""),
-          workRoleId: workRoleId || null,
-          platformRole: "member",
-          newHire: data.get("newHire") === "on",
-        }),
-      );
-      e.currentTarget.reset();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create member");
-    }
-  }
 
   if (
     !ready ||
     !user ||
     !company ||
     !isOnboardingComplete(company) ||
-    membership?.platformRole !== "owner"
+    membership?.platformRole !== "owner" ||
+    !analytics
   ) {
-    return (
-      <main className="shell">
-        <AppNav />
-        <p className="muted">Loading…</p>
-      </main>
-    );
+    return <p className="muted">Loading…</p>;
   }
 
   return (
-    <main>
-      <AppNav />
-      <section className="shell" style={{ paddingBottom: "4rem" }}>
-        <div className="page-head">
-          <div>
-            <p className="tag">Owner · {company.name}</p>
-            <h1>Company admin</h1>
-            <p className="muted" style={{ margin: "0.45rem 0 0" }}>
-              <Link href="/getting-started" style={{ color: "inherit", textDecoration: "underline" }}>
-                How this app works
-              </Link>
-            </p>
-          </div>
-        </div>
-
-        {error ? <p className="error">{error}</p> : null}
-
-        <div className="panel stack admin-agent">
-          <h3>Team agent</h3>
-          <p className="muted">
-            Tell Mira who to add or change, e.g. “Add Sara Lind, sara@acme.com, new hire in
-            Operations” or “Make Ben a senior.”
+    <>
+      <div className="admin-section-head">
+        <div>
+          <h2>Overview</h2>
+          <p className="muted admin-meta">
+            {company.name} · learning activity and progression
           </p>
-          <OnboardingChat mode="manage" />
         </div>
+        <Link className="btn btn-primary" href="/admin/people">
+          Manage people
+        </Link>
+      </div>
 
-        <div className="grid-2">
-          <div className="stack">
-            <form className="panel stack" onSubmit={onCreateRole}>
-              <h3>Work roles</h3>
-              <p className="muted">
-                Title, seniority, and competence decide which expert lessons attach to each hire.
-              </p>
-              <div className="field">
-                <label htmlFor="title">Job title</label>
-                <input id="title" name="title" required placeholder="Customer success" />
-              </div>
-              <div className="field">
-                <label htmlFor="seniority">Seniority (number)</label>
-                <input id="seniority" name="seniority" type="number" min={1} defaultValue={1} required />
-              </div>
-              <div className="field">
-                <label htmlFor="competence">Competence</label>
-                <select id="competence" name="competence" defaultValue="junior">
-                  <option value="junior">Junior</option>
-                  <option value="mid">Mid</option>
-                  <option value="expert">Expert</option>
-                </select>
-              </div>
-              <button className="btn btn-primary" type="submit">
-                Add role
-              </button>
-              <ul className="list">
-                {roles.map((role) => (
-                  <li key={role.id}>
-                    <div>
-                      <strong>{role.title}</strong>
-                      <div className="muted">
-                        Seniority {role.seniority} · {role.competence}
+      <div className="admin-metrics" aria-label="Learning KPIs">
+        <div className="admin-metric">
+          <span className="admin-metric-value">{analytics.activeLearners7d}</span>
+          <span className="admin-metric-label">Active learners (7d)</span>
+        </div>
+        <div className="admin-metric">
+          <span className="admin-metric-value">
+            {analytics.completions7d}
+            <span className="admin-metric-sub">/{analytics.completionsAll}</span>
+          </span>
+          <span className="admin-metric-label">Completions (7d / all)</span>
+        </div>
+        <div className="admin-metric">
+          <span className="admin-metric-value">{analytics.avgRoadmapCompletion}%</span>
+          <span className="admin-metric-label">Avg roadmap done</span>
+        </div>
+        <Link href="/admin/lessons" className="admin-metric">
+          <span className="admin-metric-value">{analytics.lessonsWithZeroPlays}</span>
+          <span className="admin-metric-label">Lessons with 0 plays</span>
+        </Link>
+      </div>
+
+      <div className="admin-overview-grid">
+        <section className="admin-panel">
+          <div className="admin-panel-head">
+            <h3>Needs attention</h3>
+            <Link className="admin-link" href="/admin/people">
+              View people
+            </Link>
+          </div>
+          {analytics.attention.length ? (
+            <ul className="admin-attention-list">
+              {analytics.attention.map((item) => (
+                <li key={item.membershipId}>
+                  <div>
+                    <strong>{item.name}</strong>
+                    <div className="muted">{item.detail}</div>
+                  </div>
+                  <span className={`admin-status admin-status-${item.kind}`}>
+                    {personStatusLabel(item.kind)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted admin-panel-empty">Everyone looks on track.</p>
+          )}
+        </section>
+
+        <section className="admin-panel">
+          <div className="admin-panel-head">
+            <h3>Recent activity</h3>
+            <Link className="admin-link" href="/admin/lessons">
+              View lessons
+            </Link>
+          </div>
+          {analytics.recentActivity.length ? (
+            <ul className="admin-activity-list">
+              {analytics.recentActivity.map((item) => (
+                <li key={item.id}>
+                  <div>
+                    <strong>{item.personName}</strong>
+                    <div className="muted">
+                      {outcomeLabel(item.outcome)} · {item.lessonTitle}
+                    </div>
+                  </div>
+                  <span className="admin-activity-time">
+                    {formatRelativeTime(item.at)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted admin-panel-empty">
+              No lesson sessions yet — activity appears when people open Learn.
+            </p>
+          )}
+        </section>
+      </div>
+
+      <section className="admin-panel admin-top-lessons">
+        <div className="admin-panel-head">
+          <h3>Top lessons</h3>
+          <Link className="admin-link" href="/admin/lessons">
+            All lessons
+          </Link>
+        </div>
+        {analytics.topLessons.length ? (
+          <div className="admin-people">
+            <div className="admin-people-cols admin-lesson-cols" aria-hidden>
+              <span>Lesson</span>
+              <span>Starts</span>
+              <span>Done</span>
+              <span>Rate</span>
+            </div>
+            <ul className="admin-people-list">
+              {analytics.topLessons.map((row) => (
+                <li key={row.lesson.id} className="admin-person">
+                  <div className="admin-person-main admin-lesson-row">
+                    <div className="admin-person-identity">
+                      <div className="admin-person-name">
+                        <strong>{row.lesson.title}</strong>
+                        {row.zeroPlays ? (
+                          <span className="admin-badge">No plays</span>
+                        ) : null}
+                      </div>
+                      <div className="admin-person-email">
+                        {row.sourceExpert} · {row.assignedLearners} assigned
                       </div>
                     </div>
-                  </li>
-                ))}
-                {!roles.length ? <li className="muted">No roles yet</li> : null}
-              </ul>
-            </form>
-
-            <form className="panel stack" onSubmit={onCreateMember}>
-              <h3>Members</h3>
-              <p className="muted">Create accounts and attach a work role. Roadmaps regenerate on save.</p>
-              <div className="field">
-                <label htmlFor="name">Name</label>
-                <input id="name" name="name" required />
-              </div>
-              <div className="field">
-                <label htmlFor="email">Email</label>
-                <input id="email" name="email" type="email" required />
-              </div>
-              <div className="field">
-                <label htmlFor="workRoleId">Work role</label>
-                <select id="workRoleId" name="workRoleId" defaultValue="">
-                  <option value="">Unassigned</option>
-                  {roles.map((role) => (
-                    <option key={role.id} value={role.id}>
-                      {role.title} · {role.competence} (L{role.seniority})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <label className="check-field">
-                <input type="checkbox" name="newHire" />
-                <span>
-                  New hire to onboard
-                  <em className="muted"> · simple lessons app, no recording</em>
-                </span>
-              </label>
-              <button className="btn btn-primary" type="submit">
-                Add member
-              </button>
-            </form>
+                    <span className="admin-stat">{row.starts}</span>
+                    <span className="admin-stat">{row.completions}</span>
+                    <span className="admin-stat">
+                      {row.starts > 0 ? `${row.completionRate}%` : "—"}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
-
-          <div className="stack">
-            <div className="panel stack">
-              <h3>People</h3>
-              <ul className="list">
-                {members.map((member) => {
-                  const person = store.users.find((u) => u.id === member.userId);
-                  const role = roles.find((r) => r.id === member.workRoleId);
-                  const roadmap = getRoadmapForMembership(store, member.id);
-                  return (
-                    <li key={member.id} style={{ alignItems: "flex-start", flexDirection: "column" }}>
-                      <div style={{ width: "100%", display: "flex", justifyContent: "space-between", gap: "1rem" }}>
-                        <div>
-                          <strong>{person?.name ?? "Unknown"}</strong>
-                          {member.newHire ? <span className="tag tag-hire">New hire</span> : null}
-                          <div className="muted">
-                            {person?.email} · {member.platformRole}
-                          </div>
-                        </div>
-                        <span className="tag">
-                          {roadmap ? `${roadmap.items.filter((i) => i.status === "done").length}/${roadmap.items.length} lessons` : "No roadmap"}
-                        </span>
-                      </div>
-                      <select
-                        value={member.workRoleId ?? ""}
-                        onChange={(e) => {
-                          try {
-                            setStore(assignWorkRole(member.id, e.target.value || null));
-                          } catch (err) {
-                            setError(err instanceof Error ? err.message : "Assign failed");
-                          }
-                        }}
-                      >
-                        <option value="">Unassigned</option>
-                        {roles.map((r) => (
-                          <option key={r.id} value={r.id}>
-                            {r.title} · {r.competence} (L{r.seniority})
-                          </option>
-                        ))}
-                      </select>
-                      <span className="muted">{role ? `${role.title}` : "No role"}</span>
-                      {member.platformRole !== "owner" ? (
-                        <div className="member-actions">
-                          <button
-                            className="btn-text"
-                            type="button"
-                            onClick={() => setStore(setMemberNewHire(member.id, !member.newHire))}
-                          >
-                            {member.newHire ? "Mark onboarded" : "Mark as new hire"}
-                          </button>
-                          <button
-                            className="btn-text"
-                            type="button"
-                            onClick={() => {
-                              setStore(signInAsMember(member.id));
-                              router.push("/app");
-                            }}
-                          >
-                            View as {person?.name.split(/\s+/)[0]}
-                          </button>
-                          <button
-                            className="btn-text btn-danger-text"
-                            type="button"
-                            onClick={() => setStore(removeMember(member.id))}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ) : null}
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-
-            <div className="panel stack">
-              <h3>Company lesson pool</h3>
-              <p className="muted">{lessons.length} lessons from expert capture.</p>
-              <ul className="list">
-                {lessons.map((lesson) => (
-                  <li key={lesson.id}>
-                    <div>
-                      <strong>{lesson.title}</strong>
-                      <div className="muted">{lesson.summary}</div>
-                    </div>
-                  </li>
-                ))}
-                {!lessons.length ? (
-                  <li className="muted">No lessons yet — have an expert capture in Workspace.</li>
-                ) : null}
-              </ul>
-            </div>
-          </div>
-        </div>
+        ) : (
+          <p className="muted admin-panel-empty">
+            No lessons yet — publish a Work Map from Workspace to create them.
+          </p>
+        )}
       </section>
-    </main>
+    </>
   );
 }

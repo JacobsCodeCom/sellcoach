@@ -31,15 +31,24 @@ function stripAudioTags(text: string): string {
   return text.replace(/\[[^\]]+\]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-/** Keep voice turns short so setup doesn't drag. */
-export function speechBrief(text: string, max = 180): string {
+/**
+ * Keep voice turns short so setup doesn't drag.
+ * Always end on a complete sentence — never cut mid-clause (TTS reads "…" aloud).
+ */
+export function speechBrief(text: string, max = 140): string {
   const plain = speechPlain(text);
   if (plain.length <= max) return plain;
-  const cut = plain.slice(0, max);
-  const sentence = cut.match(/^.+?[.!?](?=\s|$)/);
-  if (sentence && sentence[0].length > 40) return sentence[0];
-  const word = cut.lastIndexOf(" ");
-  return `${(word > 40 ? cut.slice(0, word) : cut).trim()}…`;
+
+  const sentences = plain.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g)?.map((s) => s.trim()) ?? [plain];
+  let out = "";
+  for (const sentence of sentences) {
+    const next = out ? `${out} ${sentence}` : sentence;
+    if (out && next.length > max) break;
+    out = next;
+    // First sentence alone may exceed max; still speak it whole rather than mid-cut.
+    if (out.length >= max) break;
+  }
+  return out || plain.slice(0, max).trim();
 }
 
 /** Light delivery cue for v4 — skipped if text already has an audio tag. */
@@ -97,9 +106,11 @@ async function speakText(text: string) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: clean }),
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(12_000),
     });
     if (response.ok) {
+      // Read as a stream so the first chunks aren't blocked behind a full arrayBuffer
+      // on the server; Audio still needs a blob URL, but the network starts sooner.
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       await withTimeout(
@@ -142,6 +153,26 @@ async function speakText(text: string) {
 export function enqueueSpeech(text: string) {
   const plain = withDeliveryTag(speechBrief(text));
   if (!plain) return Promise.resolve();
+
+  // Theater / Playwright promos show spoken text in the UI — skip audio latency.
+  try {
+    if (
+      typeof window !== "undefined" &&
+      (window.sessionStorage.getItem("mira-promo") === "1" ||
+        new URLSearchParams(window.location.search).get("promo") === "1")
+    ) {
+      pending += 1;
+      emit(true);
+      window.setTimeout(() => {
+        pending = Math.max(0, pending - 1);
+        if (pending <= 0) emit(false);
+      }, 900);
+      return Promise.resolve();
+    }
+  } catch {
+    /* continue to real speech */
+  }
+
   pending += 1;
   emit(true);
   chain = chain

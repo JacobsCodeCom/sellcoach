@@ -1,20 +1,27 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AppNav } from "@/components/AppNav";
 import { ExampleVideos } from "@/components/landing/ExampleVideos";
 import { HeroStage } from "@/components/landing/HeroStage";
 import { HowItWorks } from "@/components/landing/HowItWorks";
+import { IntegrationsShowcase } from "@/components/landing/IntegrationsShowcase";
+import { homePathForSession } from "@/lib/repo";
 import { useSession } from "@/lib/store";
 
 export default function LandingPage() {
-  const { user, membership } = useSession();
-  const primaryHref = user
-    ? membership?.platformRole === "owner"
-      ? "/admin"
-      : "/app"
-    : "/signup";
-  const primaryLabel = user ? "Open workspace" : "Get started";
+  const router = useRouter();
+  const { ready, user, company, membership } = useSession();
+
+  useEffect(() => {
+    if (!ready || !user) return;
+    router.replace(homePathForSession({ user, company, membership }));
+  }, [ready, user, company, membership, router]);
+
+  if (!ready) return null;
+  if (user) return <p className="shell muted">Redirecting…</p>;
 
   return (
     <main className="landing">
@@ -23,7 +30,18 @@ export default function LandingPage() {
       <section className="hero-band">
         <div className="shell hero-grid">
           <div className="hero-copy">
-            <h1 className="hero-brand">Mira</h1>
+            <div className="hero-brand-row">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                className="hero-brand-mark"
+                src="/brand/mira-mark.svg"
+                alt=""
+                width={56}
+                height={56}
+                aria-hidden
+              />
+              <h1 className="hero-brand">Mira</h1>
+            </div>
             <p className="hero-line">Your team learns from its best people.</p>
             <p className="hero-support">
               Record how experts do the work, find the fastest method for each task, and coach
@@ -31,8 +49,8 @@ export default function LandingPage() {
               seniors.
             </p>
             <div className="hero-actions">
-              <Link className="btn btn-primary btn-lg" href={primaryHref}>
-                {primaryLabel}
+              <Link className="btn btn-primary btn-lg" href="/signup">
+                Get started
               </Link>
               <a className="btn-text" href="#how">
                 See how it works
@@ -61,11 +79,21 @@ export default function LandingPage() {
           <h2>Everyone learns from the best way the work gets done</h2>
           <p className="section-lead">
             Mira records how people actually work, compares different methods for the same task,
-            and matches the best one to whoever needs it, whether that's a new hire, a junior, or
+            and matches the best one to whoever needs it, whether that&apos;s a new hire, a junior, or
             a mid-level person learning from a senior.
           </p>
           <ExampleVideos />
         </div>
+      </section>
+
+      <section className="shell section" id="integrations">
+        <p className="section-kicker">Integrations</p>
+        <h2>Start from the systems you already use.</h2>
+        <p className="section-lead">
+          Pull people and process knowledge into Mira so experts get capture tasks instead of a blank
+          setup.
+        </p>
+        <IntegrationsShowcase />
       </section>
 
       <section className="shell section cta-band">
@@ -75,8 +103,8 @@ export default function LandingPage() {
           onboarding.
         </p>
         <div className="hero-actions">
-          <Link className="btn btn-primary btn-lg" href={primaryHref}>
-            {primaryLabel}
+          <Link className="btn btn-primary btn-lg" href="/signup">
+            Get started
           </Link>
           <a className="btn-text" href="#examples">
             See the examples
@@ -85,8 +113,15 @@ export default function LandingPage() {
       </section>
 
       <footer className="shell landing-foot">
-        <strong>Mira</strong>
-        <span>Voice in · sparse hints · stays out of the way</span>
+        <span className="landing-foot-brand">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/mira-mark.svg" alt="" width={18} height={18} aria-hidden />
+          <strong>Mira</strong>
+        </span>
+        <span className="landing-foot-links">
+          <Link href="/extension">Chrome extension</Link>
+          <Link href="/privacy">Privacy</Link>
+        </span>
       </footer>
     </main>
   );
